@@ -38,17 +38,17 @@ export class MobaseStore {
 
     // should we subscribe to firebase on store creation?
     this._immediateSubscription = true;
+
+    // logging to console?
+    this._debug = true;
     
-    const optionsAreOk = this._parseOptions(options);
 
-    if(!optionsAreOk)
-        return;
+    this._parseOptions(options);
 
-
-
+    if(this._immediateSubscription) {
+      this._subscribe();
+    }
   }
-
-
 
 
 
@@ -59,10 +59,51 @@ export class MobaseStore {
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+  config(options) {
+    this._parseOptions(options);
+  }
+
+  subscribe(options) {
+    if(options)
+        this._parseOptions(options);
+
+    this._subscribe();
+  }
+
+  unsubscribe() {
+    this._unsubscribe();
+  }
+  
+
+  get size() {
+    return this._collection.size;
+  }
+
+  values() {
+    return this._collection.values();
+  }
+
+  get(id) {
+    return this._collection.get(id);
+  }
+
+  toJS() {
+    return toJS(this._collection);
+  }
 
 
 
-
+  write(params) {
+    return new Promise( (resolve, reject) => {
+      const ref = this._getChildRef(params.id);
+      this._update(ref, params).then((e) => {
+        if(e)
+            reject("Writing failed");
+        else
+            resolve();
+      });
+    });
+  }
 
 
 
@@ -87,17 +128,21 @@ export class MobaseStore {
   //
   _parseOptions(options) {
 
-    if(options.userBased)
+    if(options.userBased === true)
       this._userBased = true;
 
-    if(!!options.userId)
+    if(options.userBased === false)
+      this._userBased = false;
+
+
+    if(typeof options.userId != 'undefined')
       this._userId = options.userId;
 
 
     if(options.modelClass)
       this._modelClass = options.modelClass;
 
-    if(options.database)
+    if(typeof options.database != 'undefined')
       this._database = options.database;
 
     if(!!options.path) {
@@ -105,27 +150,48 @@ export class MobaseStore {
       this._path = options.path.replace(/\/+$/, "");
     }
 
+    if(options.immediateSubscription === true)
+      this._immediateSubscription = true;
+
+    if(options.immediateSubscription === false)
+        this._immediateSubscription = false;
+
+  }
+
+  //
+  // Checks whether all necessary options are set
+  //
+  _checkOptions() {
+    let result = true;
 
     if(!this._database) {
       this.__error('OPTIONS_NO_DB');
-      return;
+      result = false;
     }
 
     if(!!!this._path) {
       this.__error('OPTIONS_NO_PATH');
-      return;
+      result = false;
     }
 
-    if(options.immediateSubscription)
-        this._immediateSubscription = true;
+    if(this._userBased && !!!this._userId) {
+      this.__error('OPTIONS_NO_USERID');
+      result = false;
+    }
 
-
-    return true;
+    return result;
   }
 
 
-
+  //
+  // Subscribes to firebase db
+  //
   _subscribe() {
+
+    const optionsAreOK = this._checkOptions();
+
+    if(!optionsAreOK)
+        return;
 
     let path = this._path;
     if(this._userBased)
@@ -137,6 +203,8 @@ export class MobaseStore {
       this.__error('SUBSCRIBE_NO_REF');
       return;
     }
+
+    this.__log('SUBSCRIBE_REF_SET');
 
     ref.on('value', function(snapshot) { this._setReady(true); }, this);
     ref.on('child_added', function(snapshot) { this._childAdded(snapshot.val()); }, this);
@@ -165,27 +233,79 @@ export class MobaseStore {
     newItem.setFields(data);
 
     this._collection.set(newItem.id, newItem);
+
+    this.__log('CHILD_ADDED', data);
   }
 
 
   _childRemoved(data) {
+    this._collection.delete(data.id);
 
+    this.__log('CHILD_REMOVED', data.id);
   }
 
 
   _childChanged(data) {
 
+    let item = this._collection.get(data.id);
+
+    if(!item) {
+      this.__error('CHILD_CHANGED_NO_ITEM');
+      return;
+    }
+
+    item.setFields(data);
+
+    this.__log('CHILD_CHANGED', data);
   }
 
 
   _getFieldsFallback(data) {
-
+    console.log("NOT IMPLEMENTED");
   }
 
 
   _setFieldsFallback(data) {
-
+    console.log("NOT IMPLEMENTED");
   }
+
+
+
+  //
+  // Return child ref and creates a new one if needed
+  //
+  _getChildRef(id) {
+    let newRef = null;
+
+    if(id)
+      newRef = this._ref.child(id);
+    else
+        newRef = this._ref.push();
+
+
+    if(!newRef) {
+      this.__error('GET_CHILD_REF_NO_REF');
+      return;
+    }
+
+    return newRef;
+  }
+
+  //
+  // Updates  provided ref with information. Returns firebase ref promise
+  //
+  _update(ref, data) {
+    if(!ref) {
+      this.__error('UPDATE_NO_REF');
+      return;
+    }
+
+    this.__log('UPDATE_UPDATING', ref.key, data);
+
+    return ref.update(data);
+  }
+
+
 
 
 
@@ -202,25 +322,74 @@ export class MobaseStore {
   //                                                                                                                  //
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  
+
+
+  __log() {
+    let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
+
+    if(!this._debug)
+        return;
+
+    let message = null;
+
+    switch(args[0]) {
+
+      case 'SUBSCRIBE_REF_SET':
+        message = 'Firebase reference retrieved';
+        break;
+
+      case 'CHILD_ADDED':
+        message = 'Child was added to collection with data: ';
+        break;
+
+      case 'CHILD_REMOVED':
+        message = 'Child was removed from collection, id: ';
+        break;
+
+      case 'CHILD_CHANGED':
+        message = 'Child was updated with data: ';
+        break;
+
+      default:
+        message = 'Unspecified log message ' + args[0];
+        break;
+
+    }
+
+    if(message) {
+      message = 'MOBASE: (' + this._path + '): ' + message;
+      console.info.apply(this, [message].concat(args.slice(1, args.length)));
+    }
+
+  }
+
 
   //
   // throws errors to console
   //
   __error(e) {
-    switch (e) {
+    let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
+
+    let message = null;
+
+    switch (args[0]) {
 
       case 'OPTIONS_NO_DB':
-        console.error('Firebase database instance is not specified or null. mobase won\'t work without');
-        return;
+        message = 'Firebase database instance is not specified or null. mobase won\'t work without';
+        break;
       
       case 'OPTIONS_NO_PATH':
-        console.error('options.path is not specified or null.');
-        return;
+        message = 'options.path is not specified or null.';
+        break;
 
       default:
-        console.error('Unspecified error ' + e + 'occured');
-        return;
+        message = 'Unspecified error ' + e + 'occured';
+        break;
+    }
+
+    if(message) {
+      message = 'MOBASE: (' + this._path + '): ' + message;
+      console.error.apply(this, [message].concat(args.slice(1, args.length)));
     }
   }
   
