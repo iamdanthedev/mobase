@@ -7,23 +7,64 @@ exports.MobaseStore = undefined;
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
+var _desc, _value, _class, _descriptor;
+//import {isNil} from 'lodash';
+
+
 var _mobx = require('mobx');
+
+var _lodash = require('lodash');
+
+function _initDefineProp(target, property, descriptor, context) {
+  if (!descriptor) return;
+  Object.defineProperty(target, property, {
+    enumerable: descriptor.enumerable,
+    configurable: descriptor.configurable,
+    writable: descriptor.writable,
+    value: descriptor.initializer ? descriptor.initializer.call(context) : void 0
+  });
+}
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-//import {isNil} from 'lodash';
+function _applyDecoratedDescriptor(target, property, decorators, descriptor, context) {
+  var desc = {};
+  Object['ke' + 'ys'](descriptor).forEach(function (key) {
+    desc[key] = descriptor[key];
+  });
+  desc.enumerable = !!desc.enumerable;
+  desc.configurable = !!desc.configurable;
 
-var MobaseStore = exports.MobaseStore = function () {
+  if ('value' in desc || desc.initializer) {
+    desc.writable = true;
+  }
 
-  //options = {
-  //  path: '/path_inside_firebase_db',
-  //  userBased: bool,
-  //  userId: if undefined - get it from firebase.auth()
-  //  model class
-  // }
+  desc = decorators.slice().reverse().reduce(function (desc, decorator) {
+    return decorator(target, property, desc) || desc;
+  }, desc);
 
+  if (context && desc.initializer !== void 0) {
+    desc.value = desc.initializer ? desc.initializer.call(context) : void 0;
+    desc.initializer = undefined;
+  }
+
+  if (desc.initializer === void 0) {
+    Object['define' + 'Property'](target, property, desc);
+    desc = null;
+  }
+
+  return desc;
+}
+
+function _initializerWarningHelper(descriptor, context) {
+  throw new Error('Decorating class property failed. Please ensure that transform-class-properties is enabled.');
+}
+
+var MobaseStore = exports.MobaseStore = (_class = function () {
   function MobaseStore(options) {
     _classCallCheck(this, MobaseStore);
+
+    _initDefineProp(this, '_isReady', _descriptor, this);
 
     // firebase database instance
     this._database = null;
@@ -36,9 +77,6 @@ var MobaseStore = exports.MobaseStore = function () {
 
     // mobx collection map
     this._collection = (0, _mobx.asMap)();
-
-    // should we include /userId after path?
-    this._userBased = false;
 
     // actual user id. if null = get it from firebase.auth()
     this._userId = null;
@@ -118,7 +156,27 @@ var MobaseStore = exports.MobaseStore = function () {
 
       return new Promise(function (resolve, reject) {
         var ref = _this._getChildRef(params.id);
-        _this._update(ref, params).then(function (e) {
+
+        if (!childId) params.id = ref.key;
+
+        _this._write(ref, params).then(function (e) {
+          if (e) reject("Writing failed");else resolve(ref.key);
+        });
+      });
+    }
+  }, {
+    key: 'update',
+    value: function update(params) {
+      var _this2 = this;
+
+      var childId = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
+
+      return new Promise(function (resolve, reject) {
+        var ref = _this2._getChildRef(childId ? childId : params.id);
+
+        if (!childId) params.id = ref.key;
+
+        _this2._update(ref, params).then(function (e) {
           if (e) reject("Writing failed");else resolve();
         });
       });
@@ -126,15 +184,15 @@ var MobaseStore = exports.MobaseStore = function () {
   }, {
     key: 'delete',
     value: function _delete(id) {
-      var _this2 = this;
+      var _this3 = this;
 
       return new Promise(function (resolve, reject) {
         if (!!!id) {
-          _this2.__error('REMOVE_ID_INCORRECT');
+          _this3.__error('REMOVE_ID_INCORRECT');
           reject('Removing failed');
         } else {
-          var ref = _this2._getChildRef(id);
-          _this2._remove(ref).then(function (e) {
+          var ref = _this3._getChildRef(id);
+          _this3._remove(ref).then(function (e) {
             if (e) reject('Removing item failed');else resolve();
           });
         }
@@ -156,24 +214,17 @@ var MobaseStore = exports.MobaseStore = function () {
     key: '_parseOptions',
     value: function _parseOptions(options) {
 
-      if (options.userBased === true) this._userBased = true;
+      this._userId = (0, _lodash.defaultTo)(options.userId, null);
 
-      if (options.userBased === false) this._userBased = false;
+      this._childId = (0, _lodash.defaultTo)(options.childId, null);
 
-      if (typeof options.userId != 'undefined') this._userId = options.userId;
+      this._modelClass = (0, _lodash.defaultTo)(options.modelClass, null);
 
-      if (options.modelClass) this._modelClass = options.modelClass;
+      this._database = (0, _lodash.defaultTo)(options.database, null);
 
-      if (typeof options.database != 'undefined') this._database = options.database;
+      this._path = (0, _lodash.defaultTo)(options.path.replace(/\/+$/, ""), null); // remove trailing slash
 
-      if (!!options.path) {
-        //remove trailing slash
-        this._path = options.path.replace(/\/+$/, "");
-      }
-
-      if (options.immediateSubscription === true) this._immediateSubscription = true;
-
-      if (options.immediateSubscription === false) this._immediateSubscription = false;
+      this._immediateSubscription = (0, _lodash.defaultTo)(options.immediateSubscription, true);
     }
 
     //
@@ -195,11 +246,6 @@ var MobaseStore = exports.MobaseStore = function () {
         result = false;
       }
 
-      if (this._userBased && !!!this._userId) {
-        this.__error('OPTIONS_NO_USERID');
-        result = false;
-      }
-
       return result;
     }
 
@@ -215,8 +261,7 @@ var MobaseStore = exports.MobaseStore = function () {
 
       if (!optionsAreOK) return;
 
-      var path = this._path;
-      if (this._userBased) path += '/' + this._userId;
+      var path = this.__makePath();
 
       var ref = this._database.ref(path);
 
@@ -257,6 +302,8 @@ var MobaseStore = exports.MobaseStore = function () {
       if (typeof newItem.setFields != "function") newItem.prototype.setFields = this._setFieldsFallback;
 
       newItem.setFields(data);
+
+      if (!!this._userId) newItem._userId = this._userId;
 
       this._collection.set(newItem.id, newItem);
 
@@ -315,6 +362,26 @@ var MobaseStore = exports.MobaseStore = function () {
     }
 
     //
+    // Sets  provided ref with information. Returns firebase ref promise
+    //
+
+  }, {
+    key: '_write',
+    value: function _write(ref, data) {
+      if (!ref) {
+        this.__error('WRITE_NO_REF');
+        return;
+      }
+
+      var d = (0, _lodash.assign)({}, data);
+      if ((0, _lodash.has)(d, '_userId')) delete d._userId;
+
+      this.__log('WRITE_UPDATING', ref.key, data);
+
+      return ref.set(data);
+    }
+
+    //
     // Updates  provided ref with information. Returns firebase ref promise
     //
 
@@ -325,8 +392,6 @@ var MobaseStore = exports.MobaseStore = function () {
         this.__error('UPDATE_NO_REF');
         return;
       }
-
-      data.id = ref.key;
 
       this.__log('UPDATE_UPDATING', ref.key, data);
 
@@ -362,6 +427,17 @@ var MobaseStore = exports.MobaseStore = function () {
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+  }, {
+    key: '__makePath',
+    value: function __makePath() {
+      var path = this._path;
+
+      if (!!this._userId) path += '/' + this._userId;
+
+      if (!!this.childId) path += '/' + this._childId;
+
+      return path;
+    }
   }, {
     key: '__log',
     value: function __log() {
@@ -433,6 +509,11 @@ var MobaseStore = exports.MobaseStore = function () {
       }
     }
   }, {
+    key: 'isReady',
+    get: function get() {
+      return this._isReady;
+    }
+  }, {
     key: 'size',
     get: function get() {
       return this._collection.size;
@@ -440,7 +521,10 @@ var MobaseStore = exports.MobaseStore = function () {
   }]);
 
   return MobaseStore;
-}();
+}(), (_descriptor = _applyDecoratedDescriptor(_class.prototype, '_isReady', [_mobx.observable], {
+  enumerable: true,
+  initializer: null
+}), _applyDecoratedDescriptor(_class.prototype, 'isReady', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'isReady'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'size', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'size'), _class.prototype)), _class);
 
 // class Todo extends MobaseModel {
 //   properties = {

@@ -1,5 +1,6 @@
-import {asMap, observable} from 'mobx';
+import {asMap, observable, computed} from 'mobx';
 //import {isNil} from 'lodash';
+import {assign, has, defaultTo} from 'lodash';
 
 export class MobaseStore {
 
@@ -10,6 +11,9 @@ export class MobaseStore {
   //  userId: if undefined - get it from firebase.auth()
   //  model class
   // }
+
+  @observable _isReady;
+
 
   constructor(options) {
 
@@ -24,9 +28,6 @@ export class MobaseStore {
 
     // mobx collection map
     this._collection = asMap();
-
-    // should we include /userId after path?
-    this._userBased = false;
 
     // actual user id. if null = get it from firebase.auth()
     this._userId = null;
@@ -60,6 +61,10 @@ export class MobaseStore {
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+  @computed get isReady() {
+    return this._isReady;
+  }
+
   config(options) {
     this._parseOptions(options);
   }
@@ -76,7 +81,7 @@ export class MobaseStore {
   }
 
 
-  get size() {
+  @computed get size() {
     return this._collection.size;
   }
 
@@ -97,6 +102,26 @@ export class MobaseStore {
   write(params) {
     return new Promise( (resolve, reject) => {
       const ref = this._getChildRef(params.id);
+
+      if(!childId)
+        params.id = ref.key;
+
+      this._write(ref, params).then((e) => {
+        if(e)
+            reject("Writing failed");
+        else
+            resolve(ref.key);
+      });
+    });
+  }
+
+  update(params, childId = null) {
+    return new Promise( (resolve, reject) => {
+      const ref = this._getChildRef(childId ? childId : params.id);
+
+      if(!childId)
+        params.id = ref.key;
+
       this._update(ref, params).then((e) => {
         if(e)
             reject("Writing failed");
@@ -147,33 +172,17 @@ export class MobaseStore {
   //
   _parseOptions(options) {
 
-    if(options.userBased === true)
-      this._userBased = true;
+    this._userId = defaultTo(options.userId, null);
 
-    if(options.userBased === false)
-      this._userBased = false;
+    this._childId = defaultTo(options.childId, null);
 
+    this._modelClass = defaultTo(options.modelClass, null);
 
-    if(typeof options.userId != 'undefined')
-      this._userId = options.userId;
+    this._database = defaultTo(options.database, null);
 
+    this._path = defaultTo( options.path.replace(/\/+$/, "") , null); // remove trailing slash
 
-    if(options.modelClass)
-      this._modelClass = options.modelClass;
-
-    if(typeof options.database != 'undefined')
-      this._database = options.database;
-
-    if(!!options.path) {
-      //remove trailing slash
-      this._path = options.path.replace(/\/+$/, "");
-    }
-
-    if(options.immediateSubscription === true)
-      this._immediateSubscription = true;
-
-    if(options.immediateSubscription === false)
-        this._immediateSubscription = false;
+    this._immediateSubscription = defaultTo(options.immediateSubscription, true);
 
   }
 
@@ -193,11 +202,6 @@ export class MobaseStore {
       result = false;
     }
 
-    if(this._userBased && !!!this._userId) {
-      this.__error('OPTIONS_NO_USERID');
-      result = false;
-    }
-
     return result;
   }
 
@@ -212,9 +216,7 @@ export class MobaseStore {
     if(!optionsAreOK)
         return;
 
-    let path = this._path;
-    if(this._userBased)
-        path += '/' + this._userId;
+    let path = this.__makePath();
 
     let ref = this._database.ref(path);
 
@@ -250,6 +252,9 @@ export class MobaseStore {
         newItem.prototype.setFields = this._setFieldsFallback;
 
     newItem.setFields(data);
+
+    if(!!this._userId)
+      newItem._userId = this._userId;
 
     this._collection.set(newItem.id, newItem);
 
@@ -310,6 +315,26 @@ export class MobaseStore {
     return newRef;
   }
 
+
+  //
+  // Sets  provided ref with information. Returns firebase ref promise
+  //
+  _write(ref, data) {
+    if(!ref) {
+      this.__error('WRITE_NO_REF');
+      return;
+    }
+
+    let d = assign({}, data);
+    if( has (d, '_userId'))
+      delete d._userId;
+
+    this.__log('WRITE_UPDATING', ref.key, data);
+
+    return ref.set(data);
+  }
+
+
   //
   // Updates  provided ref with information. Returns firebase ref promise
   //
@@ -318,8 +343,6 @@ export class MobaseStore {
       this.__error('UPDATE_NO_REF');
       return;
     }
-
-    data.id = ref.key;
 
     this.__log('UPDATE_UPDATING', ref.key, data);
 
@@ -357,6 +380,18 @@ export class MobaseStore {
   //                                                                                                                  //
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+  __makePath() {
+    let path = this._path;
+
+    if(!!this._userId)
+      path += '/' + this._userId;
+
+    if(!!this.childId)
+      path += '/' + this._childId;
+
+    return path;
+  }
 
 
   __log() {
