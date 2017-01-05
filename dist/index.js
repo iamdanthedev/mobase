@@ -11,6 +11,8 @@ var _mobx = require('mobx');
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
+//import {isNil} from 'lodash';
+
 var MobaseStore = exports.MobaseStore = function () {
 
   //options = {
@@ -26,7 +28,7 @@ var MobaseStore = exports.MobaseStore = function () {
     // firebase database instance
     this._database = null;
 
-    // firebase reference  
+    // firebase reference
     this._ref = null;
 
     // is collection ready?
@@ -119,6 +121,23 @@ var MobaseStore = exports.MobaseStore = function () {
         _this._update(ref, params).then(function (e) {
           if (e) reject("Writing failed");else resolve();
         });
+      });
+    }
+  }, {
+    key: 'delete',
+    value: function _delete(id) {
+      var _this2 = this;
+
+      return new Promise(function (resolve, reject) {
+        if (!!!id) {
+          _this2.__error('REMOVE_ID_INCORRECT');
+          reject('Removing failed');
+        } else {
+          var ref = _this2._getChildRef(id);
+          _this2._remove(ref).then(function (e) {
+            if (e) reject('Removing item failed');else resolve();
+          });
+        }
       });
     }
 
@@ -307,9 +326,28 @@ var MobaseStore = exports.MobaseStore = function () {
         return;
       }
 
+      data.id = ref.key;
+
       this.__log('UPDATE_UPDATING', ref.key, data);
 
       return ref.update(data);
+    }
+
+    //
+    // Remove provided ref
+    //
+
+  }, {
+    key: '_remove',
+    value: function _remove(ref) {
+      if (!ref) {
+        this.__error('DELETE_NO_REF');
+        return;
+      }
+
+      this.__log('DELETE_DELETING', ref.key, data);
+
+      return ref.remove();
     }
   }, {
     key: '_setReady',
@@ -403,3 +441,107 @@ var MobaseStore = exports.MobaseStore = function () {
 
   return MobaseStore;
 }();
+
+// class Todo extends MobaseModel {
+//   properties = {
+//     'title': '',
+//     'someOptions': {},
+//     'arrayoption': []
+//   }
+// }
+
+//
+//
+//
+// export class MobaseModel {
+//
+//   constructor(options) {
+//
+//     if(_.isNil(this.properties)) {
+//       this.__error('CONSTRUCTOR_NO_PROPERTIES');
+//       return;
+//     }
+//
+//     this._defineProperties(this.properties);
+//   }
+//
+//   getValues() {
+//     return this._getValues();
+//   }
+//
+//
+//   _defineProperties(properties) {
+//     properties.forEach((value, key) => {
+//       Object.defineProperties(this, key, {
+//         value: value,
+//         enumerable: true
+//       })
+//     });
+//   }
+//
+//   _getValues() {
+//     return toJS(this);
+//   }
+//
+//
+//
+//
+//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//   //                                                                                                                  //
+//   //                                              HELPERS                                                             //
+//   //                                                                                                                  //
+//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+//   __log() {
+//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
+//
+//     if(!this._debug)
+//       return;
+//
+//     let message = null;
+//
+//     switch(args[0]) {
+//
+//       default:
+//         message = 'Unspecified log message ' + args[0];
+//         break;
+//
+//     }
+//
+//     if(message) {
+//       message = 'MOBASE: (' + this._path + '): ' + message;
+//       console.info.apply(this, [message].concat(args.slice(1, args.length)));
+//     }
+//
+//   }
+//
+//
+//   //
+//   // throws errors to console
+//   //
+//   __error(e) {
+//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
+//
+//     let message = null;
+//
+//     switch (args[0]) {
+//
+//       case 'CONSTRUCTOR_NO_PROPERTIES':
+//         message = 'Properties must be specified for a mobase model';
+//         break;
+//
+//       default:
+//         message = 'Unspecified error ' + e + 'occured';
+//         break;
+//     }
+//
+//     if(message) {
+//       message = 'MOBASE: (' + this._path + '): ' + message;
+//       console.error.apply(this, [message].concat(args.slice(1, args.length)));
+//     }
+//   }
+//
+//
+// }

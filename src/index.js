@@ -1,4 +1,5 @@
-import {asMap} from 'mobx';
+import {asMap, observable} from 'mobx';
+//import {isNil} from 'lodash';
 
 export class MobaseStore {
 
@@ -14,25 +15,25 @@ export class MobaseStore {
 
     // firebase database instance
     this._database = null;
-    
-    // firebase reference  
+
+    // firebase reference
     this._ref = null;
-    
+
     // is collection ready?
     this._isReady = false;
-    
+
     // mobx collection map
     this._collection = asMap();
-    
+
     // should we include /userId after path?
     this._userBased = false;
-    
+
     // actual user id. if null = get it from firebase.auth()
     this._userId = null;
-    
+
     //instanced of this class will belong to this._collection
     this._modelClass = null;
-    
+
     //path to firebase db
     this._path = null;
 
@@ -41,7 +42,7 @@ export class MobaseStore {
 
     // logging to console?
     this._debug = true;
-    
+
 
     this._parseOptions(options);
 
@@ -73,7 +74,7 @@ export class MobaseStore {
   unsubscribe() {
     this._unsubscribe();
   }
-  
+
 
   get size() {
     return this._collection.size;
@@ -102,6 +103,24 @@ export class MobaseStore {
         else
             resolve();
       });
+    });
+  }
+
+  delete(id) {
+    return new Promise ( (resolve, reject) => {
+      if(!!!id) {
+        this.__error('REMOVE_ID_INCORRECT');
+        reject('Removing failed');
+      }
+      else {
+        const ref = this._getChildRef(id);
+        this._remove(ref).then (e => {
+          if(e)
+            reject('Removing item failed');
+          else
+            resolve();
+        })
+      }
     });
   }
 
@@ -300,9 +319,25 @@ export class MobaseStore {
       return;
     }
 
+    data.id = ref.key;
+
     this.__log('UPDATE_UPDATING', ref.key, data);
 
     return ref.update(data);
+  }
+
+  //
+  // Remove provided ref
+  //
+  _remove(ref) {
+    if(!ref) {
+      this.__error('DELETE_NO_REF');
+      return;
+    }
+
+    this.__log('DELETE_DELETING', ref.key, data);
+
+    return ref.remove();
   }
 
 
@@ -377,7 +412,7 @@ export class MobaseStore {
       case 'OPTIONS_NO_DB':
         message = 'Firebase database instance is not specified or null. mobase won\'t work without';
         break;
-      
+
       case 'OPTIONS_NO_PATH':
         message = 'options.path is not specified or null.';
         break;
@@ -392,9 +427,115 @@ export class MobaseStore {
       console.error.apply(this, [message].concat(args.slice(1, args.length)));
     }
   }
-  
-  
-  
+
+
+
 
 
 }
+
+
+
+// class Todo extends MobaseModel {
+//   properties = {
+//     'title': '',
+//     'someOptions': {},
+//     'arrayoption': []
+//   }
+// }
+
+//
+//
+//
+// export class MobaseModel {
+//
+//   constructor(options) {
+//
+//     if(_.isNil(this.properties)) {
+//       this.__error('CONSTRUCTOR_NO_PROPERTIES');
+//       return;
+//     }
+//
+//     this._defineProperties(this.properties);
+//   }
+//
+//   getValues() {
+//     return this._getValues();
+//   }
+//
+//
+//   _defineProperties(properties) {
+//     properties.forEach((value, key) => {
+//       Object.defineProperties(this, key, {
+//         value: value,
+//         enumerable: true
+//       })
+//     });
+//   }
+//
+//   _getValues() {
+//     return toJS(this);
+//   }
+//
+//
+//
+//
+//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//   //                                                                                                                  //
+//   //                                              HELPERS                                                             //
+//   //                                                                                                                  //
+//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+//   __log() {
+//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
+//
+//     if(!this._debug)
+//       return;
+//
+//     let message = null;
+//
+//     switch(args[0]) {
+//
+//       default:
+//         message = 'Unspecified log message ' + args[0];
+//         break;
+//
+//     }
+//
+//     if(message) {
+//       message = 'MOBASE: (' + this._path + '): ' + message;
+//       console.info.apply(this, [message].concat(args.slice(1, args.length)));
+//     }
+//
+//   }
+//
+//
+//   //
+//   // throws errors to console
+//   //
+//   __error(e) {
+//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
+//
+//     let message = null;
+//
+//     switch (args[0]) {
+//
+//       case 'CONSTRUCTOR_NO_PROPERTIES':
+//         message = 'Properties must be specified for a mobase model';
+//         break;
+//
+//       default:
+//         message = 'Unspecified error ' + e + 'occured';
+//         break;
+//     }
+//
+//     if(message) {
+//       message = 'MOBASE: (' + this._path + '): ' + message;
+//       console.error.apply(this, [message].concat(args.slice(1, args.length)));
+//     }
+//   }
+//
+//
+// }
