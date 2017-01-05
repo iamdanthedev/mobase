@@ -1,6 +1,6 @@
 import {asMap, observable, computed} from 'mobx';
 //import {isNil} from 'lodash';
-import {assign, has, defaultTo} from 'lodash';
+import {assign, merge, forEach} from 'lodash';
 
 export class MobaseStore {
 
@@ -17,8 +17,28 @@ export class MobaseStore {
 
   constructor(options) {
 
-    // firebase database instance
-    this._database = null;
+    this.options = {
+      // firebase database instance
+      database: null,
+
+      //path to firebase db node
+      path: null,
+
+      //add userId to path
+      userId: null,
+
+      //add chillId to path (path/userId/childId)
+      childId: null,
+
+      //model class to instanciate
+      modelClass: null,
+
+      //should we subscribe to firebase on store creation
+      immediateSubscription: true,
+
+      //output debug information
+      debug: true
+    };
 
     // firebase reference
     this._ref = null;
@@ -29,25 +49,9 @@ export class MobaseStore {
     // mobx collection map
     this._collection = asMap();
 
-    // actual user id. if null = get it from firebase.auth()
-    this._userId = null;
+    this.options = merge(this.options, options);
 
-    //instanced of this class will belong to this._collection
-    this._modelClass = null;
-
-    //path to firebase db
-    this._path = null;
-
-    // should we subscribe to firebase on store creation?
-    this._immediateSubscription = true;
-
-    // logging to console?
-    this._debug = true;
-
-
-    this._parseOptions(options);
-
-    if(this._immediateSubscription) {
+    if(this.options.immediateSubscription) {
       this._subscribe();
     }
   }
@@ -65,13 +69,10 @@ export class MobaseStore {
     return this._isReady;
   }
 
-  config(options) {
-    this._parseOptions(options);
-  }
 
   subscribe(options) {
     if(options)
-        this._parseOptions(options);
+      this.options = merge(this.options, options);
 
     this._subscribe();
   }
@@ -168,36 +169,17 @@ export class MobaseStore {
 
 
   //
-  // Parse options object and show errors if present
-  //
-  _parseOptions(options) {
-
-    this._userId = defaultTo(options.userId, null);
-
-    this._childId = defaultTo(options.childId, null);
-
-    this._modelClass = defaultTo(options.modelClass, null);
-
-    this._database = defaultTo(options.database, null);
-
-    this._path = defaultTo( options.path.replace(/\/+$/, "") , null); // remove trailing slash
-
-    this._immediateSubscription = defaultTo(options.immediateSubscription, true);
-
-  }
-
-  //
   // Checks whether all necessary options are set
   //
   _checkOptions() {
     let result = true;
 
-    if(!this._database) {
+    if(!this.options.database) {
       this.__error('OPTIONS_NO_DB');
       result = false;
     }
 
-    if(!!!this._path) {
+    if(!this.options.path) {
       this.__error('OPTIONS_NO_PATH');
       result = false;
     }
@@ -218,7 +200,7 @@ export class MobaseStore {
 
     let path = this.__makePath();
 
-    let ref = this._database.ref(path);
+    let ref = this.options.database.ref(path);
 
     if(!ref) {
       this.__error('SUBSCRIBE_NO_REF');
@@ -243,18 +225,13 @@ export class MobaseStore {
 
 
   _childAdded(data) {
-    const newItem = new this._modelClass();
+    const newItem = new this.options.modelClass(data, {userId: this.options.userId});
 
-    if(typeof newItem.getFields != "function")
-      newItem.prototype.getFields = this._getFieldsFallback;
-
-    if(typeof newItem.setFields != "function")
-        newItem.prototype.setFields = this._setFieldsFallback;
-
-    newItem.setFields(data);
-
-    if(!!this._userId)
-      newItem._userId = this._userId;
+    // if(typeof newItem.getFields != "function")
+    //   newItem.prototype.getFields = this._getFieldsFallback;
+    //
+    // if(typeof newItem.setFields != "function")
+    //     newItem.prototype.setFields = this._setFieldsFallback;
 
     this._collection.set(newItem.id, newItem);
 
@@ -325,11 +302,7 @@ export class MobaseStore {
       return;
     }
 
-    let d = assign({}, data);
-    if( has (d, '_userId'))
-      delete d._userId;
-
-    this.__log('WRITE_UPDATING', ref.key, data);
+    this.__log('WRITE_UPDATING', ref.key, this.__removePrivateKeys(data));
 
     return ref.set(data);
   }
@@ -344,7 +317,7 @@ export class MobaseStore {
       return;
     }
 
-    this.__log('UPDATE_UPDATING', ref.key, data);
+    this.__log('UPDATE_UPDATING', ref.key, this.__removePrivateKeys(data));
 
     return ref.update(data);
   }
@@ -381,14 +354,25 @@ export class MobaseStore {
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+  __removePrivateKeys(d) {
+    let result = assign({}, d);
+
+    forEach(result, (value, key) => {
+      if(key[0] == '_')
+        delete result[key];
+    });
+
+    return result;
+  }
+
   __makePath() {
-    let path = this._path;
+    let path = this.options.path;
 
-    if(!!this._userId)
-      path += '/' + this._userId;
+    if(!!this.options.userId)
+      path += '/' + this.options.userId;
 
-    if(!!this.childId)
-      path += '/' + this._childId;
+    if(!!this.options.childId)
+      path += '/' + this.options.childId;
 
     return path;
   }
@@ -397,7 +381,7 @@ export class MobaseStore {
   __log() {
     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
 
-    if(!this._debug)
+    if(!this.options.debug)
         return;
 
     let message = null;
@@ -427,7 +411,7 @@ export class MobaseStore {
     }
 
     if(message) {
-      message = 'MOBASE: (' + this._path + '): ' + message;
+      message = 'MOBASE: (' + this.__makePath() + '): ' + message;
       console.info.apply(this, [message].concat(args.slice(1, args.length)));
     }
 
@@ -458,7 +442,7 @@ export class MobaseStore {
     }
 
     if(message) {
-      message = 'MOBASE: (' + this._path + '): ' + message;
+      message = 'MOBASE: (' + this.__makePath() + '): ' + message;
       console.error.apply(this, [message].concat(args.slice(1, args.length)));
     }
   }

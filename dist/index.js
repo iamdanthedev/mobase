@@ -66,8 +66,28 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
 
     _initDefineProp(this, '_isReady', _descriptor, this);
 
-    // firebase database instance
-    this._database = null;
+    this.options = {
+      // firebase database instance
+      database: null,
+
+      //path to firebase db node
+      path: null,
+
+      //add userId to path
+      userId: null,
+
+      //add chillId to path (path/userId/childId)
+      childId: null,
+
+      //model class to instanciate
+      modelClass: null,
+
+      //should we subscribe to firebase on store creation
+      immediateSubscription: true,
+
+      //output debug information
+      debug: true
+    };
 
     // firebase reference
     this._ref = null;
@@ -78,24 +98,9 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
     // mobx collection map
     this._collection = (0, _mobx.asMap)();
 
-    // actual user id. if null = get it from firebase.auth()
-    this._userId = null;
+    this.options = (0, _lodash.merge)(this.options, options);
 
-    //instanced of this class will belong to this._collection
-    this._modelClass = null;
-
-    //path to firebase db
-    this._path = null;
-
-    // should we subscribe to firebase on store creation?
-    this._immediateSubscription = true;
-
-    // logging to console?
-    this._debug = true;
-
-    this._parseOptions(options);
-
-    if (this._immediateSubscription) {
+    if (this.options.immediateSubscription) {
       this._subscribe();
     }
   }
@@ -108,14 +113,9 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
 
 
   _createClass(MobaseStore, [{
-    key: 'config',
-    value: function config(options) {
-      this._parseOptions(options);
-    }
-  }, {
     key: 'subscribe',
     value: function subscribe(options) {
-      if (options) this._parseOptions(options);
+      if (options) this.options = (0, _lodash.merge)(this.options, options);
 
       this._subscribe();
     }
@@ -207,27 +207,6 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
 
 
     //
-    // Parse options object and show errors if present
-    //
-
-  }, {
-    key: '_parseOptions',
-    value: function _parseOptions(options) {
-
-      this._userId = (0, _lodash.defaultTo)(options.userId, null);
-
-      this._childId = (0, _lodash.defaultTo)(options.childId, null);
-
-      this._modelClass = (0, _lodash.defaultTo)(options.modelClass, null);
-
-      this._database = (0, _lodash.defaultTo)(options.database, null);
-
-      this._path = (0, _lodash.defaultTo)(options.path.replace(/\/+$/, ""), null); // remove trailing slash
-
-      this._immediateSubscription = (0, _lodash.defaultTo)(options.immediateSubscription, true);
-    }
-
-    //
     // Checks whether all necessary options are set
     //
 
@@ -236,12 +215,12 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
     value: function _checkOptions() {
       var result = true;
 
-      if (!this._database) {
+      if (!this.options.database) {
         this.__error('OPTIONS_NO_DB');
         result = false;
       }
 
-      if (!!!this._path) {
+      if (!this.options.path) {
         this.__error('OPTIONS_NO_PATH');
         result = false;
       }
@@ -263,7 +242,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
 
       var path = this.__makePath();
 
-      var ref = this._database.ref(path);
+      var ref = this.options.database.ref(path);
 
       if (!ref) {
         this.__error('SUBSCRIBE_NO_REF');
@@ -295,15 +274,13 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
   }, {
     key: '_childAdded',
     value: function _childAdded(data) {
-      var newItem = new this._modelClass();
+      var newItem = new this.options.modelClass(data, { userId: this.options.userId });
 
-      if (typeof newItem.getFields != "function") newItem.prototype.getFields = this._getFieldsFallback;
-
-      if (typeof newItem.setFields != "function") newItem.prototype.setFields = this._setFieldsFallback;
-
-      newItem.setFields(data);
-
-      if (!!this._userId) newItem._userId = this._userId;
+      // if(typeof newItem.getFields != "function")
+      //   newItem.prototype.getFields = this._getFieldsFallback;
+      //
+      // if(typeof newItem.setFields != "function")
+      //     newItem.prototype.setFields = this._setFieldsFallback;
 
       this._collection.set(newItem.id, newItem);
 
@@ -373,10 +350,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
         return;
       }
 
-      var d = (0, _lodash.assign)({}, data);
-      if ((0, _lodash.has)(d, '_userId')) delete d._userId;
-
-      this.__log('WRITE_UPDATING', ref.key, data);
+      this.__log('WRITE_UPDATING', ref.key, this.__removePrivateKeys(data));
 
       return ref.set(data);
     }
@@ -393,7 +367,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
         return;
       }
 
-      this.__log('UPDATE_UPDATING', ref.key, data);
+      this.__log('UPDATE_UPDATING', ref.key, this.__removePrivateKeys(data));
 
       return ref.update(data);
     }
@@ -428,13 +402,24 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
 
 
   }, {
+    key: '__removePrivateKeys',
+    value: function __removePrivateKeys(d) {
+      var result = (0, _lodash.assign)({}, d);
+
+      (0, _lodash.forEach)(result, function (value, key) {
+        if (key[0] == '_') delete result[key];
+      });
+
+      return result;
+    }
+  }, {
     key: '__makePath',
     value: function __makePath() {
-      var path = this._path;
+      var path = this.options.path;
 
-      if (!!this._userId) path += '/' + this._userId;
+      if (!!this.options.userId) path += '/' + this.options.userId;
 
-      if (!!this.childId) path += '/' + this._childId;
+      if (!!this.options.childId) path += '/' + this.options.childId;
 
       return path;
     }
@@ -443,7 +428,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
     value: function __log() {
       var args = arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments);
 
-      if (!this._debug) return;
+      if (!this.options.debug) return;
 
       var message = null;
 
@@ -472,7 +457,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
       }
 
       if (message) {
-        message = 'MOBASE: (' + this._path + '): ' + message;
+        message = 'MOBASE: (' + this.__makePath() + '): ' + message;
         console.info.apply(this, [message].concat(args.slice(1, args.length)));
       }
     }
@@ -504,7 +489,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
       }
 
       if (message) {
-        message = 'MOBASE: (' + this._path + '): ' + message;
+        message = 'MOBASE: (' + this.__makePath() + '): ' + message;
         console.error.apply(this, [message].concat(args.slice(1, args.length)));
       }
     }
