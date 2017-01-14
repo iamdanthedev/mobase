@@ -130,34 +130,42 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
       return this._collection.values();
     }
   }, {
+    key: 'entries',
+    value: function entries() {
+      return this._collection.entries();
+    }
+  }, {
     key: 'get',
     value: function get(id) {
       return this._collection.get(id);
     }
   }, {
+    key: 'has',
+    value: function has(id) {
+      return this._collection.has(id);
+    }
+  }, {
     key: 'toJS',
-    value: function (_toJS) {
-      function toJS() {
-        return _toJS.apply(this, arguments);
-      }
-
-      toJS.toString = function () {
-        return _toJS.toString();
-      };
-
-      return toJS;
-    }(function () {
-      return toJS(this._collection);
-    })
+    value: function toJS() {
+      return (0, _mobx.toJS)(this._collection);
+    }
   }, {
     key: 'write',
     value: function write(params) {
       var _this = this;
 
-      return new Promise(function (resolve, reject) {
-        var ref = _this._getChildRef(params.id);
+      var toRoot = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
 
-        if (!childId) params.id = ref.key;
+      return new Promise(function (resolve, reject) {
+
+        var ref = null;
+
+        if (!toRoot) {
+          ref = _this._getChildRef(params.id);
+          params.id = ref.key;
+        } else {
+          ref = _this._ref;
+        }
 
         _this._write(ref, params).then(function (e) {
           if (e) reject("Writing failed");else resolve(ref.key);
@@ -169,12 +177,18 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
     value: function update(params) {
       var _this2 = this;
 
-      var childId = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : null;
+      var toRoot = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
 
       return new Promise(function (resolve, reject) {
-        var ref = _this2._getChildRef(childId ? childId : params.id);
 
-        if (!childId) params.id = ref.key;
+        var ref = null;
+
+        if (!toRoot) {
+          ref = _this2._getChildRef(params.id);
+          params.id = ref.key;
+        } else {
+          ref = _this2._ref;
+        }
 
         _this2._update(ref, params).then(function (e) {
           if (e) reject("Writing failed");else resolve();
@@ -339,6 +353,16 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
     }
 
     //
+    // Return root ref
+    //
+
+  }, {
+    key: '_getRootRef',
+    value: function _getRootRef() {
+      return this._ref;
+    }
+
+    //
     // Sets  provided ref with information. Returns firebase ref promise
     //
 
@@ -350,9 +374,11 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
         return;
       }
 
-      this.__log('WRITE_UPDATING', ref.key, this.__removePrivateKeys(data));
+      var d = this.__removePrivateKeys(data);
 
-      return ref.set(data);
+      this.__log('WRITE', ref.key, d);
+
+      return ref.set(d);
     }
 
     //
@@ -367,9 +393,11 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
         return;
       }
 
-      this.__log('UPDATE_UPDATING', ref.key, this.__removePrivateKeys(data));
+      var d = this.__removePrivateKeys(data);
 
-      return ref.update(data);
+      this.__log('UPDATE', ref.key, d);
+
+      return ref.update(d);
     }
 
     //
@@ -404,10 +432,15 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
   }, {
     key: '__removePrivateKeys',
     value: function __removePrivateKeys(d) {
+      var _this4 = this;
+
       var result = (0, _lodash.assign)({}, d);
 
-      (0, _lodash.forEach)(result, function (value, key) {
-        if (key[0] == '_') delete result[key];
+      result.forEach(function (value, key) {
+        if (key[0] == '_') {
+          delete result[key];
+          _this4.__log('REMOVED_PRIVATE_KEY', key[0], d);
+        }
       });
 
       return result;
@@ -439,15 +472,27 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
           break;
 
         case 'CHILD_ADDED':
-          message = 'Child was added to collection with data: ';
+          message = 'Child was added to collection with data: {0}';
           break;
 
         case 'CHILD_REMOVED':
-          message = 'Child was removed from collection, id: ';
+          message = 'Child was removed from collection, id: {0}';
           break;
 
         case 'CHILD_CHANGED':
-          message = 'Child was updated with data: ';
+          message = 'Child was updated with data: {1}';
+          break;
+
+        case 'REMOVED_PRIVATE_KEY':
+          message = 'Private key {0} removed from {1}';
+          break;
+
+        case 'WRITE':
+          message = 'Writing key {0} with data {1}';
+          break;
+
+        case 'UPDATE':
+          message = 'Updating key {0} with data {1}';
           break;
 
         default:
@@ -457,8 +502,11 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
       }
 
       if (message) {
-        message = 'MOBASE: (' + this.__makePath() + '): ' + message;
-        console.info.apply(this, [message].concat(args.slice(1, args.length)));
+        message = 'MOBASE: (' + this.__makePath() + '): \n' + message;
+        var formatted = message;
+        if (args.length > 1) formatted = this.__format(message, args.slice(1, args.length));
+
+        console.info(formatted);
       }
     }
 
@@ -492,6 +540,22 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
         message = 'MOBASE: (' + this.__makePath() + '): ' + message;
         console.error.apply(this, [message].concat(args.slice(1, args.length)));
       }
+    }
+  }, {
+    key: '__format',
+    value: function __format(message, args) {
+      var formatted = message;
+
+      if (args) {
+
+        for (var i = 0; i < args.length; i++) {
+          var regexp = new RegExp('\\{' + i + '\\}', 'gi');
+          var replace = JSON.stringify(args[i]);
+          formatted = formatted.replace(regexp, replace);
+        }
+      }
+
+      return formatted;
     }
   }, {
     key: 'isReady',

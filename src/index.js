@@ -1,6 +1,6 @@
-import {asMap, observable, computed} from 'mobx';
+import {asMap, observable, computed, toJS} from 'mobx';
 //import {isNil} from 'lodash';
-import {assign, merge, forEach} from 'lodash';
+import {assign, merge} from 'lodash';
 
 export class MobaseStore {
 
@@ -90,22 +90,36 @@ export class MobaseStore {
     return this._collection.values();
   }
 
+  entries() {
+    return this._collection.entries();
+  }
+
   get(id) {
     return this._collection.get(id);
+  }
+
+  has(id) {
+    return this._collection.has(id);
   }
 
   toJS() {
     return toJS(this._collection);
   }
 
-
-
-  write(params) {
+  write(params, toRoot = false) {
     return new Promise( (resolve, reject) => {
-      const ref = this._getChildRef(params.id);
 
-      if(!childId)
+      let ref = null;
+
+      if(!toRoot) {
+        ref =  this._getChildRef(params.id);
         params.id = ref.key;
+      }
+      else {
+        ref = this._ref;
+      }
+
+
 
       this._write(ref, params).then((e) => {
         if(e)
@@ -116,12 +130,19 @@ export class MobaseStore {
     });
   }
 
-  update(params, childId = null) {
+  update(params, toRoot = false) {
     return new Promise( (resolve, reject) => {
-      const ref = this._getChildRef(childId ? childId : params.id);
 
-      if(!childId)
+      let ref = null;
+
+      if(!toRoot) {
+        ref =  this._getChildRef(params.id);
         params.id = ref.key;
+      }
+      else {
+        ref = this._ref;
+      }
+
 
       this._update(ref, params).then((e) => {
         if(e)
@@ -294,6 +315,14 @@ export class MobaseStore {
 
 
   //
+  // Return root ref
+  //
+  _getRootRef() {
+    return this._ref;
+  }
+
+
+  //
   // Sets  provided ref with information. Returns firebase ref promise
   //
   _write(ref, data) {
@@ -302,9 +331,11 @@ export class MobaseStore {
       return;
     }
 
-    this.__log('WRITE_UPDATING', ref.key, this.__removePrivateKeys(data));
+    const d = this.__removePrivateKeys(data);
 
-    return ref.set(data);
+    this.__log('WRITE', ref.key, d);
+
+    return ref.set(d);
   }
 
 
@@ -317,9 +348,11 @@ export class MobaseStore {
       return;
     }
 
-    this.__log('UPDATE_UPDATING', ref.key, this.__removePrivateKeys(data));
+    const d = this.__removePrivateKeys(data);
 
-    return ref.update(data);
+    this.__log('UPDATE', ref.key, d);
+
+    return ref.update(d);
   }
 
   //
@@ -357,9 +390,11 @@ export class MobaseStore {
   __removePrivateKeys(d) {
     let result = assign({}, d);
 
-    forEach(result, (value, key) => {
-      if(key[0] == '_')
+    result.forEach((value, key) => {
+      if(key[0] == '_') {
         delete result[key];
+        this.__log('REMOVED_PRIVATE_KEY', key[0], d);
+      }
     });
 
     return result;
@@ -393,15 +428,27 @@ export class MobaseStore {
         break;
 
       case 'CHILD_ADDED':
-        message = 'Child was added to collection with data: ';
+        message = 'Child was added to collection with data: {0}';
         break;
 
       case 'CHILD_REMOVED':
-        message = 'Child was removed from collection, id: ';
+        message = 'Child was removed from collection, id: {0}';
         break;
 
       case 'CHILD_CHANGED':
-        message = 'Child was updated with data: ';
+        message = 'Child was updated with data: {1}';
+        break;
+
+      case 'REMOVED_PRIVATE_KEY':
+        message = 'Private key {0} removed from {1}';
+        break;
+
+      case 'WRITE':
+        message = 'Writing key {0} with data {1}';
+        break;
+
+      case 'UPDATE':
+        message = 'Updating key {0} with data {1}';
         break;
 
       default:
@@ -411,8 +458,12 @@ export class MobaseStore {
     }
 
     if(message) {
-      message = 'MOBASE: (' + this.__makePath() + '): ' + message;
-      console.info.apply(this, [message].concat(args.slice(1, args.length)));
+      message = 'MOBASE: (' + this.__makePath() + '): \n' + message;
+      let formatted = message;
+      if(args.length > 1)
+          formatted = this.__format(message, args.slice(1, args.length));
+
+      console.info(formatted);
     }
 
   }
@@ -448,113 +499,20 @@ export class MobaseStore {
   }
 
 
+  __format(message, args) {
+    var formatted = message;
 
+    if(args) {
 
+      for (var i = 0; i < args.length; i++) {
+        let regexp = new RegExp('\\{'+i+'\\}', 'gi');
+        let replace = JSON.stringify(args[i]);
+        formatted = formatted.replace(regexp, replace);
+      }
+
+    }
+
+    return formatted;
+  }
 
 }
-
-
-
-// class Todo extends MobaseModel {
-//   properties = {
-//     'title': '',
-//     'someOptions': {},
-//     'arrayoption': []
-//   }
-// }
-
-//
-//
-//
-// export class MobaseModel {
-//
-//   constructor(options) {
-//
-//     if(_.isNil(this.properties)) {
-//       this.__error('CONSTRUCTOR_NO_PROPERTIES');
-//       return;
-//     }
-//
-//     this._defineProperties(this.properties);
-//   }
-//
-//   getValues() {
-//     return this._getValues();
-//   }
-//
-//
-//   _defineProperties(properties) {
-//     properties.forEach((value, key) => {
-//       Object.defineProperties(this, key, {
-//         value: value,
-//         enumerable: true
-//       })
-//     });
-//   }
-//
-//   _getValues() {
-//     return toJS(this);
-//   }
-//
-//
-//
-//
-//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//   //                                                                                                                  //
-//   //                                              HELPERS                                                             //
-//   //                                                                                                                  //
-//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//
-//
-//   __log() {
-//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
-//
-//     if(!this._debug)
-//       return;
-//
-//     let message = null;
-//
-//     switch(args[0]) {
-//
-//       default:
-//         message = 'Unspecified log message ' + args[0];
-//         break;
-//
-//     }
-//
-//     if(message) {
-//       message = 'MOBASE: (' + this._path + '): ' + message;
-//       console.info.apply(this, [message].concat(args.slice(1, args.length)));
-//     }
-//
-//   }
-//
-//
-//   //
-//   // throws errors to console
-//   //
-//   __error(e) {
-//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
-//
-//     let message = null;
-//
-//     switch (args[0]) {
-//
-//       case 'CONSTRUCTOR_NO_PROPERTIES':
-//         message = 'Properties must be specified for a mobase model';
-//         break;
-//
-//       default:
-//         message = 'Unspecified error ' + e + 'occured';
-//         break;
-//     }
-//
-//     if(message) {
-//       message = 'MOBASE: (' + this._path + '): ' + message;
-//       console.error.apply(this, [message].concat(args.slice(1, args.length)));
-//     }
-//   }
-//
-//
-// }
