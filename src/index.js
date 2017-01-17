@@ -1,8 +1,13 @@
 import {asMap, observable, computed, toJS} from 'mobx';
 //import {isNil} from 'lodash';
-import {assign, merge} from 'lodash';
+import {assign, merge, forEach} from 'lodash';
 
 export class MobaseStore {
+
+
+  static options = {
+    debug: false
+  }
 
 
   //options = {
@@ -24,6 +29,9 @@ export class MobaseStore {
       //path to firebase db node
       path: null,
 
+      //default if field of a record
+      idField: 'id',
+
       //add userId to path
       userId: null,
 
@@ -37,7 +45,7 @@ export class MobaseStore {
       immediateSubscription: true,
 
       //output debug information
-      debug: true
+      debug: MobaseStore.options.debug
     };
 
     // firebase reference
@@ -69,7 +77,7 @@ export class MobaseStore {
     return this._isReady;
   }
 
-
+  //Subscribe to firebase (if options.immediateSubscription == false)
   subscribe(options) {
     if(options)
       this.options = merge(this.options, options);
@@ -85,6 +93,11 @@ export class MobaseStore {
   @computed get size() {
     return this._collection.size;
   }
+
+  //exposes internal collection
+  @computed get collection() {
+    return this._collection;
+  }  
 
   values() {
     return this._collection.values();
@@ -106,13 +119,15 @@ export class MobaseStore {
     return toJS(this._collection);
   }
 
+
+
   write(params, toRoot = false) {
     return new Promise( (resolve, reject) => {
 
       let ref = null;
 
       if(!toRoot) {
-        ref =  this._getChildRef(params.id);
+        ref =  this._getChildRef(params[this.options.idField]);
         params.id = ref.key;
       }
       else {
@@ -136,7 +151,7 @@ export class MobaseStore {
       let ref = null;
 
       if(!toRoot) {
-        ref =  this._getChildRef(params.id);
+        ref =  this._getChildRef(params[this.options.idField]);
         params.id = ref.key;
       }
       else {
@@ -244,32 +259,34 @@ export class MobaseStore {
   }
 
 
-
+  //child_added event handler
   _childAdded(data) {
+    //extract id from incoming data
+    const newId = data[this.options.idField];
+
+    if(!!!newId) {
+      this.__error('CHILD_ADDED_NO_ID', data);
+      return;
+    }
+
     const newItem = new this.options.modelClass(data, {userId: this.options.userId});
 
-    // if(typeof newItem.getFields != "function")
-    //   newItem.prototype.getFields = this._getFieldsFallback;
-    //
-    // if(typeof newItem.setFields != "function")
-    //     newItem.prototype.setFields = this._setFieldsFallback;
-
-    this._collection.set(newItem.id, newItem);
+    this._collection.set(newId, newItem);
 
     this.__log('CHILD_ADDED', data);
   }
 
-
-  _childRemoved(data) {
-    this._collection.delete(data.id);
-
-    this.__log('CHILD_REMOVED', data.id);
-  }
-
-
+  //child_changed event handler
   _childChanged(data) {
+    //extract id from incoming data
+    const id = data[this.options.idField];
 
-    let item = this._collection.get(data.id);
+    if(!!!id) {
+      this.__error('CHILD_CHANGED_NO_ID', data);
+      return;
+    }
+
+    let item = this._collection.get(id);
 
     if(!item) {
       this.__error('CHILD_CHANGED_NO_ITEM');
@@ -280,6 +297,31 @@ export class MobaseStore {
 
     this.__log('CHILD_CHANGED', data);
   }
+
+  //child_removed event handler
+  _childRemoved(data) {
+    //extract id from incoming data
+    const id = data[this.options.idField];
+
+    if(!!!id) {
+      this.__error('CHILD_REMOVED_NO_ID', data);
+      return;
+    }
+
+    let item = this._collection.get(id);
+
+    if(!item) {
+      this.__error('CHILD_REMOVED_NO_ITEM');
+      return;
+    }    
+
+    if(item.destructor)
+      item.destructor();
+
+    this._collection.delete(id);
+
+    this.__log('CHILD_REMOVED', id);
+  }  
 
 
   _getFieldsFallback(data) {
@@ -390,7 +432,7 @@ export class MobaseStore {
   __removePrivateKeys(d) {
     let result = assign({}, d);
 
-    result.forEach((value, key) => {
+    forEach(result, (value, key) => {
       if(key[0] == '_') {
         delete result[key];
         this.__log('REMOVED_PRIVATE_KEY', key[0], d);
@@ -436,7 +478,7 @@ export class MobaseStore {
         break;
 
       case 'CHILD_CHANGED':
-        message = 'Child was updated with data: {1}';
+        message = 'Child was updated with data: {0}';
         break;
 
       case 'REMOVED_PRIVATE_KEY':
@@ -485,6 +527,18 @@ export class MobaseStore {
 
       case 'OPTIONS_NO_PATH':
         message = 'options.path is not specified or null.';
+        break;
+
+      case 'CHILD_ADDED_NO_ID':
+        message = 'child_added event received, but id field is not present or null or empty';
+        break;
+
+      case 'CHILD_CHANGED_NO_ID':
+        message = 'child_changed event received, but id field is not present or null or empty';
+        break;                
+
+      case 'CHILD_REMOVED_NO_ID':
+        message = 'child_removed event received, but id field is not present or null or empty';
         break;
 
       default:

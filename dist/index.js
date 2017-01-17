@@ -7,7 +7,7 @@ exports.MobaseStore = undefined;
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _desc, _value, _class, _descriptor;
+var _desc, _value, _class, _descriptor, _class2, _temp;
 //import {isNil} from 'lodash';
 
 
@@ -60,7 +60,7 @@ function _initializerWarningHelper(descriptor, context) {
   throw new Error('Decorating class property failed. Please ensure that transform-class-properties is enabled.');
 }
 
-var MobaseStore = exports.MobaseStore = (_class = function () {
+var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function () {
   function MobaseStore(options) {
     _classCallCheck(this, MobaseStore);
 
@@ -72,6 +72,9 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
 
       //path to firebase db node
       path: null,
+
+      //default if field of a record
+      idField: 'id',
 
       //add userId to path
       userId: null,
@@ -86,7 +89,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
       immediateSubscription: true,
 
       //output debug information
-      debug: true
+      debug: MobaseStore.options.debug
     };
 
     // firebase reference
@@ -112,8 +115,18 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+  //options = {
+  //  path: '/path_inside_firebase_db',
+  //  userBased: bool,
+  //  userId: if undefined - get it from firebase.auth()
+  //  model class
+  // }
+
   _createClass(MobaseStore, [{
     key: 'subscribe',
+
+
+    //Subscribe to firebase (if options.immediateSubscription == false)
     value: function subscribe(options) {
       if (options) this.options = (0, _lodash.merge)(this.options, options);
 
@@ -161,7 +174,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
         var ref = null;
 
         if (!toRoot) {
-          ref = _this._getChildRef(params.id);
+          ref = _this._getChildRef(params[_this.options.idField]);
           params.id = ref.key;
         } else {
           ref = _this._ref;
@@ -184,7 +197,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
         var ref = null;
 
         if (!toRoot) {
-          ref = _this2._getChildRef(params.id);
+          ref = _this2._getChildRef(params[_this2.options.idField]);
           params.id = ref.key;
         } else {
           ref = _this2._ref;
@@ -285,33 +298,41 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
     value: function _unsubscribe() {
       this._ref.off();
     }
+
+    //child_added event handler
+
   }, {
     key: '_childAdded',
     value: function _childAdded(data) {
+      //extract id from incoming data
+      var newId = data[this.options.idField];
+
+      if (!!!newId) {
+        this.__error('CHILD_ADDED_NO_ID', data);
+        return;
+      }
+
       var newItem = new this.options.modelClass(data, { userId: this.options.userId });
 
-      // if(typeof newItem.getFields != "function")
-      //   newItem.prototype.getFields = this._getFieldsFallback;
-      //
-      // if(typeof newItem.setFields != "function")
-      //     newItem.prototype.setFields = this._setFieldsFallback;
-
-      this._collection.set(newItem.id, newItem);
+      this._collection.set(newId, newItem);
 
       this.__log('CHILD_ADDED', data);
     }
-  }, {
-    key: '_childRemoved',
-    value: function _childRemoved(data) {
-      this._collection.delete(data.id);
 
-      this.__log('CHILD_REMOVED', data.id);
-    }
+    //child_changed event handler
+
   }, {
     key: '_childChanged',
     value: function _childChanged(data) {
+      //extract id from incoming data
+      var id = data[this.options.idField];
 
-      var item = this._collection.get(data.id);
+      if (!!!id) {
+        this.__error('CHILD_CHANGED_NO_ID', data);
+        return;
+      }
+
+      var item = this._collection.get(id);
 
       if (!item) {
         this.__error('CHILD_CHANGED_NO_ITEM');
@@ -321,6 +342,33 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
       item.setFields(data);
 
       this.__log('CHILD_CHANGED', data);
+    }
+
+    //child_removed event handler
+
+  }, {
+    key: '_childRemoved',
+    value: function _childRemoved(data) {
+      //extract id from incoming data
+      var id = data[this.options.idField];
+
+      if (!!!id) {
+        this.__error('CHILD_REMOVED_NO_ID', data);
+        return;
+      }
+
+      var item = this._collection.get(id);
+
+      if (!item) {
+        this.__error('CHILD_REMOVED_NO_ITEM');
+        return;
+      }
+
+      if (item.destructor) item.destructor();
+
+      this._collection.delete(id);
+
+      this.__log('CHILD_REMOVED', id);
     }
   }, {
     key: '_getFieldsFallback',
@@ -436,7 +484,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
 
       var result = (0, _lodash.assign)({}, d);
 
-      result.forEach(function (value, key) {
+      (0, _lodash.forEach)(result, function (value, key) {
         if (key[0] == '_') {
           delete result[key];
           _this4.__log('REMOVED_PRIVATE_KEY', key[0], d);
@@ -480,7 +528,7 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
           break;
 
         case 'CHILD_CHANGED':
-          message = 'Child was updated with data: {1}';
+          message = 'Child was updated with data: {0}';
           break;
 
         case 'REMOVED_PRIVATE_KEY':
@@ -531,6 +579,18 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
           message = 'options.path is not specified or null.';
           break;
 
+        case 'CHILD_ADDED_NO_ID':
+          message = 'child_added event received, but id field is not present or null or empty';
+          break;
+
+        case 'CHILD_CHANGED_NO_ID':
+          message = 'child_changed event received, but id field is not present or null or empty';
+          break;
+
+        case 'CHILD_REMOVED_NO_ID':
+          message = 'child_removed event received, but id field is not present or null or empty';
+          break;
+
         default:
           message = 'Unspecified error ' + e + 'occured';
           break;
@@ -567,114 +627,20 @@ var MobaseStore = exports.MobaseStore = (_class = function () {
     get: function get() {
       return this._collection.size;
     }
+
+    //exposes internal collection
+
+  }, {
+    key: 'collection',
+    get: function get() {
+      return this._collection;
+    }
   }]);
 
   return MobaseStore;
-}(), (_descriptor = _applyDecoratedDescriptor(_class.prototype, '_isReady', [_mobx.observable], {
+}(), _class2.options = {
+  debug: false
+}, _temp), (_descriptor = _applyDecoratedDescriptor(_class.prototype, '_isReady', [_mobx.observable], {
   enumerable: true,
   initializer: null
-}), _applyDecoratedDescriptor(_class.prototype, 'isReady', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'isReady'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'size', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'size'), _class.prototype)), _class);
-
-// class Todo extends MobaseModel {
-//   properties = {
-//     'title': '',
-//     'someOptions': {},
-//     'arrayoption': []
-//   }
-// }
-
-//
-//
-//
-// export class MobaseModel {
-//
-//   constructor(options) {
-//
-//     if(_.isNil(this.properties)) {
-//       this.__error('CONSTRUCTOR_NO_PROPERTIES');
-//       return;
-//     }
-//
-//     this._defineProperties(this.properties);
-//   }
-//
-//   getValues() {
-//     return this._getValues();
-//   }
-//
-//
-//   _defineProperties(properties) {
-//     properties.forEach((value, key) => {
-//       Object.defineProperties(this, key, {
-//         value: value,
-//         enumerable: true
-//       })
-//     });
-//   }
-//
-//   _getValues() {
-//     return toJS(this);
-//   }
-//
-//
-//
-//
-//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//   //                                                                                                                  //
-//   //                                              HELPERS                                                             //
-//   //                                                                                                                  //
-//   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//
-//
-//   __log() {
-//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
-//
-//     if(!this._debug)
-//       return;
-//
-//     let message = null;
-//
-//     switch(args[0]) {
-//
-//       default:
-//         message = 'Unspecified log message ' + args[0];
-//         break;
-//
-//     }
-//
-//     if(message) {
-//       message = 'MOBASE: (' + this._path + '): ' + message;
-//       console.info.apply(this, [message].concat(args.slice(1, args.length)));
-//     }
-//
-//   }
-//
-//
-//   //
-//   // throws errors to console
-//   //
-//   __error(e) {
-//     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
-//
-//     let message = null;
-//
-//     switch (args[0]) {
-//
-//       case 'CONSTRUCTOR_NO_PROPERTIES':
-//         message = 'Properties must be specified for a mobase model';
-//         break;
-//
-//       default:
-//         message = 'Unspecified error ' + e + 'occured';
-//         break;
-//     }
-//
-//     if(message) {
-//       message = 'MOBASE: (' + this._path + '): ' + message;
-//       console.error.apply(this, [message].concat(args.slice(1, args.length)));
-//     }
-//   }
-//
-//
-// }
+}), _applyDecoratedDescriptor(_class.prototype, 'isReady', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'isReady'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'size', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'size'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'collection', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'collection'), _class.prototype)), _class);
