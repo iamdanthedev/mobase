@@ -5,10 +5,16 @@ Object.defineProperty(exports, "__esModule", {
 });
 exports.MobaseStore = undefined;
 
+var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
+
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _desc, _value, _class, _descriptor, _class2, _temp;
-//import {isNil} from 'lodash';
+var _desc, _value, _class, _descriptor, _class2, _temp; // CHANGELOG
+// Added options.name (arguable?)
+// Models are injected with _mobase object
+// Added onAfterChildAdded, onAfterChildRemoved, onAfterChildChanged hooks
+//       onBeforeChildAdded, onBeforeChildRemoved, onBeforeChildChanged
+//       onBeforeValue, onAfterValue
 
 
 var _mobx = require('mobx');
@@ -66,7 +72,35 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
 
     _initDefineProp(this, '_isReady', _descriptor, this);
 
+    this.__messages = {
+
+      // Error messages
+      '_ERROR_DEFAULT_': 'Unspecified error occured',
+      'OPTIONS_NO_DB': 'Firebase database instance is not specified or null.',
+      'OPTIONS_NO_PATH': 'options.path is not specified or null',
+      'SUBSCRIBE_NO_REF': 'Cannon establish firebase ref object in order to make a connection',
+      'CHILD_ADDED_NO_ID': 'child_added event received, but id field is not present or null or empty',
+      'CHILD_CHANGED_NO_ID': 'child_changed event received, but id field is not present or null or empty',
+      'CHILD_REMOVED_NO_ID': 'child_removed event received, but id field is not present or null or empty',
+      'DELETE_WRONG_ARGS_TYPE': 'Wrong id provided. Should be string, object (keys act as ids) or array of ids',
+
+      // Log messages
+      '_LOG_DEFAULT_': 'Default log action occured',
+      'SUBSCRIBE_REF_SET': 'Firebase reference retrieved',
+      'VALUE': 'Children %o have been added to collection from data %o',
+      'CHILD_ADDED': 'Child (%s) has been added with %o',
+      'CHILD_REMOVED': 'Child (%s) has been removed',
+      'CHILD_CHANGED': 'Child %s has been updated with %o',
+      'REMOVED_PRIVATE_KEY': 'Private key %s removed from %o',
+      'WRITE': 'Writing child (%s) with %o',
+      'UPDATE': 'Updating child (%s) with %o'
+    };
+
+
     this.options = {
+      // this collection name to keep ref in stores[name]
+      name: null,
+
       // firebase database instance
       database: null,
 
@@ -79,7 +113,7 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
       //add userId to path
       userId: null,
 
-      //add chillId to path (path/userId/childId)
+      //add childId to path (path/userId/childId)
       childId: null,
 
       //model class to instanciate
@@ -99,13 +133,16 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
     this._isReady = false;
 
     // mobx collection map
-    this._collection = (0, _mobx.asMap)();
+    this._collection = _mobx.observable.map();
 
-    this.options = (0, _lodash.merge)(this.options, options);
+    (0, _lodash.merge)(this.options, MobaseStore.options, options);
 
     if (this.options.immediateSubscription) {
       this._subscribe();
     }
+
+    //keep reference for future injections
+    MobaseStore.stores[this.options.name ? this.options.name : this.options.path] = this;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -115,20 +152,13 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-  //options = {
-  //  path: '/path_inside_firebase_db',
-  //  userBased: bool,
-  //  userId: if undefined - get it from firebase.auth()
-  //  model class
-  // }
-
   _createClass(MobaseStore, [{
     key: 'subscribe',
 
 
     //Subscribe to firebase (if options.immediateSubscription == false)
     value: function subscribe(options) {
-      if (options) this.options = (0, _lodash.merge)(this.options, options);
+      if (options) (0, _lodash.merge)(this.options, MobaseStore.options, options);
 
       this._subscribe();
     }
@@ -174,14 +204,16 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
         var ref = null;
 
         if (!toRoot) {
-          ref = _this._getChildRef(params[_this.options.idField]);
+          ref = _this._getChildRef(_this.__extractId(params));
           params.id = ref.key;
         } else {
           ref = _this._ref;
         }
 
-        _this._write(ref, params).then(function (e) {
-          if (e) reject("Writing failed");else resolve(ref.key);
+        _this._write(ref, params).then(function (key) {
+          return resolve(key);
+        }).catch(function (e) {
+          return reject("Writing failed");
         });
       });
     }
@@ -197,32 +229,37 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
         var ref = null;
 
         if (!toRoot) {
-          ref = _this2._getChildRef(params[_this2.options.idField]);
+          ref = _this2._getChildRef(_this2.__extractId(params));
           params.id = ref.key;
         } else {
           ref = _this2._ref;
         }
 
-        _this2._update(ref, params).then(function (e) {
-          if (e) reject("Writing failed");else resolve();
+        _this2._update(ref, params).then(function () {
+          return resolve();
+        }).catch(function () {
+          return reject("Updating failed");
         });
       });
     }
   }, {
     key: 'delete',
-    value: function _delete(id) {
+    value: function _delete(_ids) {
       var _this3 = this;
 
       return new Promise(function (resolve, reject) {
-        if (!!!id) {
-          _this3.__error('REMOVE_ID_INCORRECT');
-          reject('Removing failed');
-        } else {
-          var ref = _this3._getChildRef(id);
-          _this3._remove(ref).then(function (e) {
-            if (e) reject('Removing item failed');else resolve();
-          });
-        }
+        var update = {};
+        var ids = void 0;
+
+        if (Array.isArray(_ids)) ids = Array.from(_ids);else if (typeof _ids == "string") ids = [_ids];else if ((typeof _ids === 'undefined' ? 'undefined' : _typeof(_ids)) == "object") ids = Object.keys(_ids);else reject(_this3.__error('DELETE_WRONG_ARGS_TYPE', false));
+
+        ids.forEach(function (id) {
+          update[id] = null;
+        });
+
+        _this3._ref.update(update).then(function (e) {
+          return e ? reject(e) : resolve(ids);
+        });
       });
     }
 
@@ -263,9 +300,7 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
     key: '_subscribe',
     value: function _subscribe() {
 
-      var optionsAreOK = this._checkOptions();
-
-      if (!optionsAreOK) return;
+      if (!this._checkOptions()) return;
 
       var path = this.__makePath();
 
@@ -279,7 +314,7 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
       this.__log('SUBSCRIBE_REF_SET');
 
       ref.on('value', function (snapshot) {
-        this._setReady(true);
+        this._value(snapshot.val());
       }, this);
       ref.on('child_added', function (snapshot) {
         this._childAdded(snapshot.val());
@@ -299,24 +334,69 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
       this._ref.off();
     }
 
+    //values event handler.
+
+  }, {
+    key: '_value',
+    value: function _value(data) {
+      var _this4 = this;
+
+      this.__trigger('onBeforeValue', { data: data });
+
+      var buffer = {};
+
+      (0, _lodash.forEach)(data, function (itemData, id) {
+
+        _this4.__trigger('onBeforeChildAdded', { id: id, data: itemData });
+
+        var newItem = new _this4.options.modelClass(itemData);
+
+        _this4.__injectMeta(newItem);
+
+        buffer[id] = newItem;
+      });
+
+      this._collection.replace(buffer);
+
+      (0, _lodash.forEach)(buffer, function (item, id) {
+        return _this4.__trigger('onAfterChildAdded', { id: id, item: item, data: data[id] }, item);
+      });
+
+      this.__trigger('onAfterValue', { data: data, items: buffer });
+
+      this.__log('VALUE', buffer, data);
+
+      this._setReady(true);
+    }
+
     //child_added event handler
 
   }, {
     key: '_childAdded',
     value: function _childAdded(data) {
+
+      //prevent before initial value() event has been triggered
+      if (!this.isReady) return;
+
       //extract id from incoming data
-      var newId = data[this.options.idField];
+      var newId = this.__extractId(data);
 
       if (!!!newId) {
         this.__error('CHILD_ADDED_NO_ID', data);
         return;
       }
 
-      var newItem = new this.options.modelClass(data, { userId: this.options.userId });
+      this.__trigger('onBeforeChildAdded', { id: id, data: data });
+
+      var newItem = new this.options.modelClass(data);
+
+      this.__injectMeta(newItem);
 
       this._collection.set(newId, newItem);
 
-      this.__log('CHILD_ADDED', data);
+      this.__trigger('onAfterChildAdded', { id: newId, data: data, item: newItem }, newItem);
+
+      this.__log('CHILD_ADDED', newId, data);
     }
 
     //child_changed event handler
@@ -325,7 +405,7 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
     key: '_childChanged',
     value: function _childChanged(data) {
       //extract id from incoming data
-      var id = data[this.options.idField];
+      var id = this.__extractId(data);
 
       if (!!!id) {
         this.__error('CHILD_CHANGED_NO_ID', data);
@@ -335,13 +415,20 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
       var item = this._collection.get(id);
 
       if (!item) {
-        this.__error('CHILD_CHANGED_NO_ITEM');
+        this.__error('CHILD_CHANGED_NO_ITEM', data);
         return;
       }
 
-      item.setFields(data);
+      this.__trigger('onBeforeChildChanged', { id: id, data: data, item: item }, item);
 
-      this.__log('CHILD_CHANGED', data);
+      if (item.setFields && typeof item.setFields == "function") item.setFields(data); //TODO: or fallback !
+
+      //invoking set() creates a mobx reaction
+      this._collection.set(id, item);
+
+      this.__trigger('onAfterChildChanged', { id: id, data: data, item: item }, item);
+
+      this.__log('CHILD_CHANGED', id, data);
     }
 
     //child_removed event handler
@@ -350,7 +437,7 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
     key: '_childRemoved',
     value: function _childRemoved(data) {
       //extract id from incoming data
-      var id = data[this.options.idField];
+      var id = this.__extractId(data);
 
       if (!!!id) {
         this.__error('CHILD_REMOVED_NO_ID', data);
@@ -364,16 +451,13 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
         return;
       }
 
-      if (item.destructor) item.destructor();
+      this.__trigger('onBeforeChildRemoved', { id: id, item: item, data: data }, item);
 
       this._collection.delete(id);
 
+      this.__trigger('onAfterChildRemoved', { id: id, data: data });
+
       this.__log('CHILD_REMOVED', id);
-    }
-  }, {
-    key: '_getFieldsFallback',
-    value: function _getFieldsFallback(data) {
-      console.log("NOT IMPLEMENTED");
     }
   }, {
     key: '_setFieldsFallback',
@@ -417,16 +501,23 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
   }, {
     key: '_write',
     value: function _write(ref, data) {
-      if (!ref) {
-        this.__error('WRITE_NO_REF');
-        return;
-      }
+      var _this5 = this;
 
-      var d = this.__removePrivateKeys(data);
+      return new Promise(function (resolve, reject) {
 
-      this.__log('WRITE', ref.key, d);
+        if (!ref) {
+          _this5.__error('WRITE_NO_REF');
+          return reject();
+        }
 
-      return ref.set(d);
+        var d = _this5.__removePrivateKeys(data);
+
+        _this5.__log('WRITE', ref.key, d);
+
+        ref.set(d).then(function (e) {
+          return e ? reject(e) : resolve(ref.key);
+        });
+      });
     }
 
     //
@@ -436,16 +527,23 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
   }, {
     key: '_update',
     value: function _update(ref, data) {
-      if (!ref) {
-        this.__error('UPDATE_NO_REF');
-        return;
-      }
+      var _this6 = this;
 
-      var d = this.__removePrivateKeys(data);
+      return new Promise(function (resolve, reject) {
 
-      this.__log('UPDATE', ref.key, d);
+        if (!ref) {
+          _this6.__error('UPDATE_NO_REF');
+          return reject();
+        }
 
-      return ref.update(d);
+        var d = _this6.__removePrivateKeys(data);
+
+        _this6.__log('UPDATE', ref.key, d);
+
+        ref.update(d).then(function (e) {
+          return e ? reject(e) : resolve(ref.key);
+        });
+      });
     }
 
     //
@@ -455,14 +553,21 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
   }, {
     key: '_remove',
     value: function _remove(ref) {
-      if (!ref) {
-        this.__error('DELETE_NO_REF');
-        return;
-      }
+      var _this7 = this;
 
-      this.__log('DELETE_DELETING', ref.key, data);
+      return new Promise(function (resolve, reject) {
 
-      return ref.remove();
+        if (!ref) {
+          _this7.__error('DELETE_NO_REF');
+          return reject('DELETE_NO_REF');
+        }
+
+        _this7.__log('DELETE_DELETING', ref.key, data);
+
+        ref.remove().then(function (e) {
+          return e ? reject(e) : resolve();
+        });
+      });
     }
   }, {
     key: '_setReady',
@@ -476,18 +581,41 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
     //                                                                                                                  //
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  }, {
+    key: '__extractId',
+    value: function __extractId(data) {
+      return data[this.options.idField];
+    }
+  }, {
+    key: '__injectMeta',
+    value: function __injectMeta(item) {
+      if (!item) return;
 
+      Object.defineProperty(item, '$mobaseStore', { value: this, enumerable: false });
+      Object.defineProperty(item, '$mobaseStores', { value: MobaseStore.stores, enumerable: false });
+      Object.defineProperty(item, '$mobaseUserId', { value: this.options.userId, enumerable: false });
+    }
+  }, {
+    key: '__trigger',
+    value: function __trigger(e, eventParams, item) {
+
+      if (item && item[e] && typeof item[e] == "function") item[e](params);
+
+      if (this[e] && typeof this[e] == "function") this[e](params);
+
+      if (this.options[e] && typeof this.options[e] == "function") this.options[e](params);
+    }
   }, {
     key: '__removePrivateKeys',
     value: function __removePrivateKeys(d) {
-      var _this4 = this;
+      var _this8 = this;
 
       var result = (0, _lodash.assign)({}, d);
 
       (0, _lodash.forEach)(result, function (value, key) {
         if (key[0] == '_') {
           delete result[key];
-          _this4.__log('REMOVED_PRIVATE_KEY', key[0], d);
+          _this8.__log('REMOVED_PRIVATE_KEY', key[0], d);
         }
       });
 
@@ -511,111 +639,29 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
 
       if (!this.options.debug) return;
 
-      var message = null;
-
-      switch (args[0]) {
-
-        case 'SUBSCRIBE_REF_SET':
-          message = 'Firebase reference retrieved';
-          break;
-
-        case 'CHILD_ADDED':
-          message = 'Child was added to collection with data: {0}';
-          break;
-
-        case 'CHILD_REMOVED':
-          message = 'Child was removed from collection, id: {0}';
-          break;
-
-        case 'CHILD_CHANGED':
-          message = 'Child was updated with data: {0}';
-          break;
-
-        case 'REMOVED_PRIVATE_KEY':
-          message = 'Private key {0} removed from {1}';
-          break;
-
-        case 'WRITE':
-          message = 'Writing key {0} with data {1}';
-          break;
-
-        case 'UPDATE':
-          message = 'Updating key {0} with data {1}';
-          break;
-
-        default:
-          message = 'Unspecified log message ' + args[0];
-          break;
-
-      }
+      var message = this.__messages[args[0]] ? this.__messages[args[0]] : this.__messages['_LOG_DEFAULT_'];
 
       if (message) {
-        message = 'MOBASE: (' + this.__makePath() + '): \n' + message;
-        var formatted = message;
-        if (args.length > 1) formatted = this.__format(message, args.slice(1, args.length));
-
-        console.info(formatted);
+        message = 'mobase ' + this.__makePath() + '\n' + message;
+        console.info.apply(this, [message].concat(args.slice(1, args.length)));
       }
     }
 
-    //
     // throws errors to console
-    //
 
   }, {
     key: '__error',
     value: function __error(e) {
+      var shouldPrintToConsole = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
+
       var args = arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments);
 
-      var message = null;
-
-      switch (args[0]) {
-
-        case 'OPTIONS_NO_DB':
-          message = 'Firebase database instance is not specified or null. mobase won\'t work without';
-          break;
-
-        case 'OPTIONS_NO_PATH':
-          message = 'options.path is not specified or null.';
-          break;
-
-        case 'CHILD_ADDED_NO_ID':
-          message = 'child_added event received, but id field is not present or null or empty';
-          break;
-
-        case 'CHILD_CHANGED_NO_ID':
-          message = 'child_changed event received, but id field is not present or null or empty';
-          break;
-
-        case 'CHILD_REMOVED_NO_ID':
-          message = 'child_removed event received, but id field is not present or null or empty';
-          break;
-
-        default:
-          message = 'Unspecified error ' + e + 'occured';
-          break;
-      }
+      var message = this.__messages[args[0]] ? this.__messages[args[0]] : this.__messages['_ERROR_DEFAULT_'] + args[0];
 
       if (message) {
-        message = 'MOBASE: (' + this.__makePath() + '): ' + message;
-        console.error.apply(this, [message].concat(args.slice(1, args.length)));
+        message = 'mobase ' + this.__makePath() + '\n' + message;
+        if (shouldPrintToConsole) console.error.apply(this, [message].concat(args.slice(1, args.length)));else return [message].concat(args.slice(1, args.length));
       }
-    }
-  }, {
-    key: '__format',
-    value: function __format(message, args) {
-      var formatted = message;
-
-      if (args) {
-
-        for (var i = 0; i < args.length; i++) {
-          var regexp = new RegExp('\\{' + i + '\\}', 'gi');
-          var replace = JSON.stringify(args[i]);
-          formatted = formatted.replace(regexp, replace);
-        }
-      }
-
-      return formatted;
     }
   }, {
     key: 'isReady',
@@ -640,7 +686,7 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
   return MobaseStore;
 }(), _class2.options = {
   debug: false
-}, _temp), (_descriptor = _applyDecoratedDescriptor(_class.prototype, '_isReady', [_mobx.observable], {
+}, _class2.stores = {}, _temp), (_descriptor = _applyDecoratedDescriptor(_class.prototype, '_isReady', [_mobx.observable], {
   enumerable: true,
   initializer: null
 }), _applyDecoratedDescriptor(_class.prototype, 'isReady', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'isReady'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'size', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'size'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'collection', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'collection'), _class.prototype)), _class);

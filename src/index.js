@@ -1,5 +1,12 @@
-import {asMap, observable, computed, toJS} from 'mobx';
-//import {isNil} from 'lodash';
+// CHANGELOG
+// Added options.name (arguable?)
+// Models are injected with _mobase object
+// Added onAfterChildAdded, onAfterChildRemoved, onAfterChildChanged hooks
+//       onBeforeChildAdded, onBeforeChildRemoved, onBeforeChildChanged
+//       onBeforeValue, onAfterValue
+
+
+import {observable, computed, toJS} from 'mobx';
 import {assign, merge, forEach} from 'lodash';
 
 export class MobaseStore {
@@ -9,13 +16,7 @@ export class MobaseStore {
     debug: false
   }
 
-
-  //options = {
-  //  path: '/path_inside_firebase_db',
-  //  userBased: bool,
-  //  userId: if undefined - get it from firebase.auth()
-  //  model class
-  // }
+  static stores = {};
 
   @observable _isReady;
 
@@ -23,6 +24,9 @@ export class MobaseStore {
   constructor(options) {
 
     this.options = {
+      // this collection name to keep ref in stores[name]
+      name: null,
+
       // firebase database instance
       database: null,
 
@@ -35,7 +39,7 @@ export class MobaseStore {
       //add userId to path
       userId: null,
 
-      //add chillId to path (path/userId/childId)
+      //add childId to path (path/userId/childId)
       childId: null,
 
       //model class to instanciate
@@ -55,13 +59,16 @@ export class MobaseStore {
     this._isReady = false;
 
     // mobx collection map
-    this._collection = asMap();
+    this._collection = observable.map();
 
-    this.options = merge(this.options, options);
+    merge(this.options, MobaseStore.options, options);
 
     if(this.options.immediateSubscription) {
       this._subscribe();
     }
+
+    //keep reference for future injections
+    MobaseStore.stores[this.options.name ? this.options.name : this.options.path] = this;
   }
 
 
@@ -80,7 +87,7 @@ export class MobaseStore {
   //Subscribe to firebase (if options.immediateSubscription == false)
   subscribe(options) {
     if(options)
-      this.options = merge(this.options, options);
+      merge(this.options, MobaseStore.options, options);
 
     this._subscribe();
   }
@@ -97,7 +104,7 @@ export class MobaseStore {
   //exposes internal collection
   @computed get collection() {
     return this._collection;
-  }  
+  }
 
   values() {
     return this._collection.values();
@@ -127,21 +134,16 @@ export class MobaseStore {
       let ref = null;
 
       if(!toRoot) {
-        ref =  this._getChildRef(params[this.options.idField]);
+        ref =  this._getChildRef( this.__extractId(params) )
         params.id = ref.key;
       }
       else {
         ref = this._ref;
       }
 
-
-
-      this._write(ref, params).then((e) => {
-        if(e)
-            reject("Writing failed");
-        else
-            resolve(ref.key);
-      });
+      this._write(ref, params)
+        .then(key => resolve(key))
+        .catch( (e) => reject("Writing failed") )
     });
   }
 
@@ -151,39 +153,43 @@ export class MobaseStore {
       let ref = null;
 
       if(!toRoot) {
-        ref =  this._getChildRef(params[this.options.idField]);
+        ref =  this._getChildRef( this.__extractId(params) )
         params.id = ref.key;
       }
       else {
         ref = this._ref;
       }
 
-
-      this._update(ref, params).then((e) => {
-        if(e)
-            reject("Writing failed");
-        else
-            resolve();
-      });
+      this._update(ref, params)
+        .then( () => resolve() )
+        .catch( () => reject("Updating failed") )
     });
   }
 
-  delete(id) {
+  delete(_ids) {
+
     return new Promise ( (resolve, reject) => {
-      if(!!!id) {
-        this.__error('REMOVE_ID_INCORRECT');
-        reject('Removing failed');
-      }
-      else {
-        const ref = this._getChildRef(id);
-        this._remove(ref).then (e => {
-          if(e)
-            reject('Removing item failed');
-          else
-            resolve();
-        })
-      }
-    });
+      let update = {}
+      let ids
+
+      if(Array.isArray(_ids))
+        ids = Array.from(_ids)
+      else if(typeof _ids == "string")
+        ids = [_ids]
+      else if(typeof _ids == "object")
+        ids = Object.keys(_ids)
+      else
+        reject( this.__error('DELETE_WRONG_ARGS_TYPE', false) )
+
+      ids.forEach( function (id) {
+        update[id] = null
+      })
+
+      this._ref
+        .update(update)
+        .then( e => e ? reject (e) : resolve (ids))
+
+    })
   }
 
 
@@ -229,10 +235,8 @@ export class MobaseStore {
   //
   _subscribe() {
 
-    const optionsAreOK = this._checkOptions();
-
-    if(!optionsAreOK)
-        return;
+    if( !this._checkOptions() )
+      return;
 
     let path = this.__makePath();
 
@@ -245,10 +249,10 @@ export class MobaseStore {
 
     this.__log('SUBSCRIBE_REF_SET');
 
-    ref.on('value', function(snapshot) { this._setReady(true); }, this);
-    ref.on('child_added', function(snapshot) { this._childAdded(snapshot.val()); }, this);
-    ref.on('child_removed', function(snapshot) { this._childRemoved(snapshot.val()); }, this);
-    ref.on('child_changed', function(snapshot) { this._childChanged(snapshot.val()); }, this);
+    ref.on('value', function(snapshot) { this._value(snapshot.val()) }, this)
+    ref.on('child_added', function(snapshot) { this._childAdded(snapshot.val()) }, this)
+    ref.on('child_removed', function(snapshot) { this._childRemoved(snapshot.val()) }, this)
+    ref.on('child_changed', function(snapshot) { this._childChanged(snapshot.val()) }, this)
 
     this._ref = ref;
   }
@@ -259,73 +263,118 @@ export class MobaseStore {
   }
 
 
+  //values event handler.
+  _value(data) {
+
+    this.__trigger('onBeforeValue', {data})
+
+    let buffer = {}
+
+    forEach(data, (itemData, id) => {
+
+      this.__trigger('onBeforeChildAdded', {id, data: itemData})
+
+      const newItem = new this.options.modelClass(itemData)
+
+      this.__injectMeta(newItem)
+
+      buffer[id] = newItem
+
+    })
+
+    this._collection.replace(buffer)
+
+    forEach(buffer, (item, id) => this.__trigger('onAfterChildAdded', {id, item, data: data[id]}, item))
+
+    this.__trigger('onAfterValue', {data, items: buffer})
+
+    this.__log('VALUE', buffer, data)
+
+    this._setReady(true)
+  }
+
+
   //child_added event handler
   _childAdded(data) {
+
+    //prevent before initial value() event has been triggered
+    if(!this.isReady) return
+
     //extract id from incoming data
-    const newId = data[this.options.idField];
+    const newId = this.__extractId(data)
 
     if(!!!newId) {
-      this.__error('CHILD_ADDED_NO_ID', data);
-      return;
+      this.__error('CHILD_ADDED_NO_ID', data)
+      return
     }
 
-    const newItem = new this.options.modelClass(data, {userId: this.options.userId});
+    this.__trigger('onBeforeChildAdded', {id, data})
 
-    this._collection.set(newId, newItem);
+    const newItem = new this.options.modelClass(data)
 
-    this.__log('CHILD_ADDED', data);
+    this.__injectMeta(newItem)
+
+    this._collection.set(newId, newItem)
+
+    this.__trigger('onAfterChildAdded', {id: newId, data, item: newItem}, newItem)
+
+    this.__log('CHILD_ADDED', newId, data)
   }
 
   //child_changed event handler
   _childChanged(data) {
     //extract id from incoming data
-    const id = data[this.options.idField];
+    const id = this.__extractId(data)
 
     if(!!!id) {
-      this.__error('CHILD_CHANGED_NO_ID', data);
-      return;
+      this.__error('CHILD_CHANGED_NO_ID', data)
+      return
     }
 
     let item = this._collection.get(id);
 
     if(!item) {
-      this.__error('CHILD_CHANGED_NO_ITEM');
-      return;
+      this.__error('CHILD_CHANGED_NO_ITEM', data)
+      return
     }
 
-    item.setFields(data);
+    this.__trigger('onBeforeChildChanged', {id, data, item}, item)
 
-    this.__log('CHILD_CHANGED', data);
+    if(item.setFields && typeof item.setFields == "function")
+      item.setFields(data) //TODO: or fallback !
+
+    //invoking set() creates a mobx reaction
+    this._collection.set(id, item)
+
+    this.__trigger('onAfterChildChanged', {id, data, item}, item)
+
+    this.__log('CHILD_CHANGED', id, data);
   }
 
   //child_removed event handler
   _childRemoved(data) {
     //extract id from incoming data
-    const id = data[this.options.idField];
+    const id = this.__extractId(data)
 
     if(!!!id) {
-      this.__error('CHILD_REMOVED_NO_ID', data);
-      return;
+      this.__error('CHILD_REMOVED_NO_ID', data)
+      return
     }
 
     let item = this._collection.get(id);
 
     if(!item) {
-      this.__error('CHILD_REMOVED_NO_ITEM');
-      return;
-    }    
+      this.__error('CHILD_REMOVED_NO_ITEM')
+      return
+    }
 
-    if(item.destructor)
-      item.destructor();
+    this.__trigger('onBeforeChildRemoved', {id, item, data}, item)
 
-    this._collection.delete(id);
+    this._collection.delete(id)
 
-    this.__log('CHILD_REMOVED', id);
-  }  
+    this.__trigger('onAfterChildRemoved', {id, data})
 
-
-  _getFieldsFallback(data) {
-    console.log("NOT IMPLEMENTED");
+    this.__log('CHILD_REMOVED', id)
   }
 
 
@@ -344,7 +393,7 @@ export class MobaseStore {
     if(id)
       newRef = this._ref.child(id);
     else
-        newRef = this._ref.push();
+      newRef = this._ref.push();
 
 
     if(!newRef) {
@@ -368,16 +417,20 @@ export class MobaseStore {
   // Sets  provided ref with information. Returns firebase ref promise
   //
   _write(ref, data) {
-    if(!ref) {
-      this.__error('WRITE_NO_REF');
-      return;
-    }
 
-    const d = this.__removePrivateKeys(data);
+    return new Promise( (resolve, reject) => {
 
-    this.__log('WRITE', ref.key, d);
+      if (!ref) {
+        this.__error('WRITE_NO_REF');
+        return reject();
+      }
 
-    return ref.set(d);
+      const d = this.__removePrivateKeys(data);
+
+      this.__log('WRITE', ref.key, d);
+
+      ref.set(d).then( e => e ? reject(e) : resolve(ref.key) )
+    })
   }
 
 
@@ -385,30 +438,38 @@ export class MobaseStore {
   // Updates  provided ref with information. Returns firebase ref promise
   //
   _update(ref, data) {
-    if(!ref) {
-      this.__error('UPDATE_NO_REF');
-      return;
-    }
 
-    const d = this.__removePrivateKeys(data);
+    return new Promise ( (resolve, reject) => {
 
-    this.__log('UPDATE', ref.key, d);
+      if (!ref) {
+        this.__error('UPDATE_NO_REF');
+        return reject();
+      }
 
-    return ref.update(d);
+      const d = this.__removePrivateKeys(data);
+
+      this.__log('UPDATE', ref.key, d);
+
+      ref.update(d).then ( e => e ? reject(e) : resolve(ref.key) )
+    })
   }
 
   //
   // Remove provided ref
   //
   _remove(ref) {
-    if(!ref) {
-      this.__error('DELETE_NO_REF');
-      return;
-    }
 
-    this.__log('DELETE_DELETING', ref.key, data);
+    return new Promise ( (resolve, reject) => {
 
-    return ref.remove();
+      if (!ref) {
+        this.__error('DELETE_NO_REF')
+        return reject('DELETE_NO_REF')
+      }
+
+      this.__log('DELETE_DELETING', ref.key, data)
+
+      ref.remove().then( e => e ? reject(e) : resolve ()  )
+    })
   }
 
 
@@ -428,30 +489,56 @@ export class MobaseStore {
   //                                                                                                                  //
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  __extractId(data) {
+    return data[this.options.idField]
+  }
+
+
+  __injectMeta(item) {
+    if(!item) return
+
+    Object.defineProperty(item, '$mobaseStore', { value: this, enumerable: false })
+    Object.defineProperty(item, '$mobaseStores', { value: MobaseStore.stores, enumerable: false })
+    Object.defineProperty(item, '$mobaseUserId', { value: this.options.userId, enumerable: false })
+  }
+
+  __trigger(e, eventParams, item) {
+
+    if(item && item[e] && typeof item[e] == "function")
+      item[e](params)
+
+    if(this[e] && typeof this[e] == "function")
+      this[e](params)
+
+    if(this.options[e] && typeof this.options[e] == "function")
+      this.options[e](params)
+
+
+  }
 
   __removePrivateKeys(d) {
-    let result = assign({}, d);
+    let result = assign({}, d)
 
     forEach(result, (value, key) => {
       if(key[0] == '_') {
-        delete result[key];
-        this.__log('REMOVED_PRIVATE_KEY', key[0], d);
+        delete result[key]
+        this.__log('REMOVED_PRIVATE_KEY', key[0], d)
       }
-    });
+    })
 
-    return result;
+    return result
   }
 
   __makePath() {
-    let path = this.options.path;
+    let path = this.options.path
 
     if(!!this.options.userId)
-      path += '/' + this.options.userId;
+      path += '/' + this.options.userId
 
     if(!!this.options.childId)
-      path += '/' + this.options.childId;
+      path += '/' + this.options.childId
 
-    return path;
+    return path
   }
 
 
@@ -459,114 +546,54 @@ export class MobaseStore {
     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
 
     if(!this.options.debug)
-        return;
+      return
 
-    let message = null;
-
-    switch(args[0]) {
-
-      case 'SUBSCRIBE_REF_SET':
-        message = 'Firebase reference retrieved';
-        break;
-
-      case 'CHILD_ADDED':
-        message = 'Child was added to collection with data: {0}';
-        break;
-
-      case 'CHILD_REMOVED':
-        message = 'Child was removed from collection, id: {0}';
-        break;
-
-      case 'CHILD_CHANGED':
-        message = 'Child was updated with data: {0}';
-        break;
-
-      case 'REMOVED_PRIVATE_KEY':
-        message = 'Private key {0} removed from {1}';
-        break;
-
-      case 'WRITE':
-        message = 'Writing key {0} with data {1}';
-        break;
-
-      case 'UPDATE':
-        message = 'Updating key {0} with data {1}';
-        break;
-
-      default:
-        message = 'Unspecified log message ' + args[0];
-        break;
-
-    }
+    let message = this.__messages[args[0]] ? this.__messages[args[0]] : this.__messages['_LOG_DEFAULT_']
 
     if(message) {
-      message = 'MOBASE: (' + this.__makePath() + '): \n' + message;
-      let formatted = message;
-      if(args.length > 1)
-          formatted = this.__format(message, args.slice(1, args.length));
-
-      console.info(formatted);
+      message = 'mobase ' + this.__makePath() + '\n' + message
+      console.info.apply(this, [message].concat(args.slice(1, args.length)))
     }
-
   }
 
-
-  //
   // throws errors to console
-  //
-  __error(e) {
-    let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
+  __error(e, shouldPrintToConsole = true) {
+    let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments))
 
-    let message = null;
-
-    switch (args[0]) {
-
-      case 'OPTIONS_NO_DB':
-        message = 'Firebase database instance is not specified or null. mobase won\'t work without';
-        break;
-
-      case 'OPTIONS_NO_PATH':
-        message = 'options.path is not specified or null.';
-        break;
-
-      case 'CHILD_ADDED_NO_ID':
-        message = 'child_added event received, but id field is not present or null or empty';
-        break;
-
-      case 'CHILD_CHANGED_NO_ID':
-        message = 'child_changed event received, but id field is not present or null or empty';
-        break;                
-
-      case 'CHILD_REMOVED_NO_ID':
-        message = 'child_removed event received, but id field is not present or null or empty';
-        break;
-
-      default:
-        message = 'Unspecified error ' + e + 'occured';
-        break;
-    }
+    let message = this.__messages[args[0]] ? this.__messages[args[0]] : this.__messages['_ERROR_DEFAULT_'] + args[0]
 
     if(message) {
-      message = 'MOBASE: (' + this.__makePath() + '): ' + message;
-      console.error.apply(this, [message].concat(args.slice(1, args.length)));
+      message = 'mobase ' + this.__makePath() + '\n' + message
+      if(shouldPrintToConsole)
+        console.error.apply(this, [message].concat(args.slice(1, args.length)))
+      else
+        return [message].concat(args.slice(1, args.length))
     }
   }
 
 
-  __format(message, args) {
-    var formatted = message;
+  __messages = {
 
-    if(args) {
+    // Error messages
+    '_ERROR_DEFAULT_': 'Unspecified error occured',
+    'OPTIONS_NO_DB': 'Firebase database instance is not specified or null.',
+    'OPTIONS_NO_PATH': 'options.path is not specified or null',
+    'SUBSCRIBE_NO_REF': 'Cannon establish firebase ref object in order to make a connection',
+    'CHILD_ADDED_NO_ID': 'child_added event received, but id field is not present or null or empty',
+    'CHILD_CHANGED_NO_ID': 'child_changed event received, but id field is not present or null or empty',
+    'CHILD_REMOVED_NO_ID': 'child_removed event received, but id field is not present or null or empty',
+    'DELETE_WRONG_ARGS_TYPE': 'Wrong id provided. Should be string, object (keys act as ids) or array of ids',
 
-      for (var i = 0; i < args.length; i++) {
-        let regexp = new RegExp('\\{'+i+'\\}', 'gi');
-        let replace = JSON.stringify(args[i]);
-        formatted = formatted.replace(regexp, replace);
-      }
-
-    }
-
-    return formatted;
+    // Log messages
+    '_LOG_DEFAULT_': 'Default log action occured',
+    'SUBSCRIBE_REF_SET': 'Firebase reference retrieved',
+    'VALUE': 'Children %o have been added to collection from data %o',
+    'CHILD_ADDED': 'Child (%s) has been added with %o',
+    'CHILD_REMOVED': 'Child (%s) has been removed',
+    'CHILD_CHANGED': 'Child %s has been updated with %o',
+    'REMOVED_PRIVATE_KEY': 'Private key %s removed from %o',
+    'WRITE': 'Writing child (%s) with %o',
+    'UPDATE': 'Updating child (%s) with %o'
   }
 
 }
