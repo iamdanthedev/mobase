@@ -3,7 +3,7 @@
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-exports.MobaseStore = undefined;
+exports.default = undefined;
 
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
 
@@ -66,7 +66,7 @@ function _initializerWarningHelper(descriptor, context) {
   throw new Error('Decorating class property failed. Please ensure that transform-class-properties is enabled.');
 }
 
-var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function () {
+var MobaseStore = (_class = (_temp = _class2 = function () {
   function MobaseStore(options) {
     _classCallCheck(this, MobaseStore);
 
@@ -349,7 +349,9 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
 
         _this4.__trigger('onBeforeChildAdded', { id: id, data: itemData });
 
-        var newItem = new _this4.options.modelClass(itemData);
+        var newItem = _this4.options.modelClass ? new _this4.options.modelClass(itemData) : {};
+
+        _this4.__setFields(newItem, itemData);
 
         _this4.__injectMeta(newItem);
 
@@ -388,7 +390,9 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
 
       this.__trigger('onBeforeChildAdded', { id: id, data: data });
 
-      var newItem = new this.options.modelClass(data);
+      var newItem = this.options.modelClass ? new this.options.modelClass(data) : {};
+
+      this.__setFields(newItem, data);
 
       this.__injectMeta(newItem);
 
@@ -582,6 +586,35 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   }, {
+    key: '__setFields',
+    value: function __setFields(item) {
+      var data = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+
+      console.log('__setFields() %o %o', item, data);
+
+      if (!item) return;
+
+      Object.defineProperty(item, '$mobaseFields', {
+        configurable: false,
+        enumerable: false,
+        writable: true,
+        value: data
+      });
+
+      var fields = Object.keys(this.options.fields || data);
+
+      fields.forEach(function (key) {
+        Object.defineProperty(item, key, {
+          configurable: false,
+          enumerable: true,
+          value: (0, _mobx.computed)(function () {
+            return item.$mobaseFields[key];
+          }),
+          writable: false
+        });
+      });
+    }
+  }, {
     key: '__extractId',
     value: function __extractId(data) {
       return data[this.options.idField];
@@ -690,3 +723,4 @@ var MobaseStore = exports.MobaseStore = (_class = (_temp = _class2 = function ()
   enumerable: true,
   initializer: null
 }), _applyDecoratedDescriptor(_class.prototype, 'isReady', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'isReady'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'size', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'size'), _class.prototype), _applyDecoratedDescriptor(_class.prototype, 'collection', [_mobx.computed], Object.getOwnPropertyDescriptor(_class.prototype, 'collection'), _class.prototype)), _class);
+exports.default = MobaseStore;

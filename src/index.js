@@ -50,25 +50,26 @@ export default class MobaseStore {
 
       //output debug information
       debug: MobaseStore.options.debug
-    };
+    }
 
     // firebase reference
-    this._ref = null;
+    this._ref = null
 
     // is collection ready?
-    this._isReady = false;
+    this._isReady = false
 
     // mobx collection map
-    this._collection = observable.map();
+    this._collection = observable.map()
 
-    merge(this.options, MobaseStore.options, options);
+    merge(this.options, MobaseStore.options, options)
 
     if(this.options.immediateSubscription) {
-      this._subscribe();
+      this._subscribe()
     }
 
     //keep reference for future injections
-    MobaseStore.stores[this.options.name ? this.options.name : this.options.path] = this;
+    MobaseStore.stores[this.options.name ? this.options.name : this.options.path] = this
+
   }
 
 
@@ -274,7 +275,9 @@ export default class MobaseStore {
 
       this.__trigger('onBeforeChildAdded', {id, data: itemData})
 
-      const newItem = new this.options.modelClass(itemData)
+      const newItem = this.options.modelClass ? new this.options.modelClass(itemData) : {}
+
+      this.__setFields(newItem, itemData)
 
       this.__injectMeta(newItem)
 
@@ -293,7 +296,6 @@ export default class MobaseStore {
     this._setReady(true)
   }
 
-
   //child_added event handler
   _childAdded(data) {
 
@@ -310,7 +312,9 @@ export default class MobaseStore {
 
     this.__trigger('onBeforeChildAdded', {id, data})
 
-    const newItem = new this.options.modelClass(data)
+    const newItem = this.options.modelClass ? new this.options.modelClass(data) : {}
+
+    this.__setFields(newItem, data)
 
     this.__injectMeta(newItem)
 
@@ -489,6 +493,33 @@ export default class MobaseStore {
   //                                                                                                                  //
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  __setFields(item, data = {}) {
+    console.log('__setFields() %o %o', item, data)
+
+    if(!item) return
+
+    Object.defineProperty(item, '$mobaseFields', {
+      configurable: false,
+      enumerable: false,
+      writable: true,
+      value: data
+    })
+
+    const fields = Object.keys( this.options.fields || data )
+
+    fields.forEach(key => {
+      Object.defineProperty(item, key, {
+        configurable: false,
+        enumerable: true,
+        value: computed( () => item.$mobaseFields[key] ),
+        writable: false
+      })
+    })
+
+
+  }
+
+
   __extractId(data) {
     return data[this.options.idField]
   }
@@ -540,7 +571,6 @@ export default class MobaseStore {
 
     return path
   }
-
 
   __log() {
     let args = (arguments.length === 1 ? [arguments[0]] : Array.apply(null, arguments));
