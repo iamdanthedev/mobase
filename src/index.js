@@ -9,7 +9,7 @@
 import {observable, computed, toJS} from 'mobx';
 import {assign, merge, forEach} from 'lodash';
 
-export class MobaseStore {
+export default class MobaseStore {
 
 
   static options = {
