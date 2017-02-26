@@ -509,6 +509,8 @@ export default class MobaseStore {
    *   If options.model is not set the method sets fields according to options.fields
    *   setting, setting only those fields specified in the setting.
    *
+   *   observable.ref is a modifier by default
+   *
    *   supported modifiers:
    *
    *     observable: in this case of plain values field should be accessed through field.set()/ fields.get()
@@ -554,8 +556,8 @@ export default class MobaseStore {
 
     fields.forEach(key => {
 
-      const modifier = this.options.fields[key].modifier
-      const defVal = this.options.fields[key].default
+      const modifier = this.options.fields[key].modifier || observable.ref
+      const defVal = this.options.fields[key].default || ''
 
       const val = typeof data[key] != "undefined" ? data[key] : defVal
 
