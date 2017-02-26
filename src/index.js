@@ -6,11 +6,10 @@
 //       onBeforeValue, onAfterValue
 
 
-import {observable, computed, toJS} from 'mobx';
-import {assign, merge, forEach} from 'lodash';
+import {observable, computed, toJS, extendObservable, isObservable} from 'mobx'
+import {assign, merge, forEach} from 'lodash'
 
 export default class MobaseStore {
-
 
   static options = {
     debug: false
@@ -42,8 +41,11 @@ export default class MobaseStore {
       //add childId to path (path/userId/childId)
       childId: null,
 
-      //model class to instanciate
-      modelClass: null,
+      //model class to instantiate
+      model: null,
+
+      //fields
+      fields: null,
 
       //should we subscribe to firebase on store creation
       immediateSubscription: true,
@@ -151,18 +153,18 @@ export default class MobaseStore {
   update(params, toRoot = false) {
     return new Promise( (resolve, reject) => {
 
-      let ref = null;
+      let ref = null
 
       if(!toRoot) {
         ref =  this._getChildRef( this.__extractId(params) )
-        params.id = ref.key;
+        params.id = ref.key
       }
       else {
-        ref = this._ref;
+        ref = this._ref
       }
 
       this._update(ref, params)
-        .then( () => resolve() )
+        .then( updatedId => resolve(updatedId) )
         .catch( () => reject("Updating failed") )
     });
   }
@@ -218,16 +220,25 @@ export default class MobaseStore {
     let result = true;
 
     if(!this.options.database) {
-      this.__error('OPTIONS_NO_DB');
-      result = false;
+      this.__error('OPTIONS_NO_DB')
+      result = false
     }
 
     if(!this.options.path) {
-      this.__error('OPTIONS_NO_PATH');
-      result = false;
+      this.__error('OPTIONS_NO_PATH')
+      result = false
     }
 
-    return result;
+    if(!this.options.fields && !this.options.model) {
+      this.__error('OPTIONS_NO_FIELDS')
+      result = false
+    }
+
+    if(this.options.fields && this.options.model) {
+      this.__log('OPTIONS_FIELDS_AND_MODEL')
+    }
+
+    return result
   }
 
 
@@ -239,16 +250,16 @@ export default class MobaseStore {
     if( !this._checkOptions() )
       return;
 
-    let path = this.__makePath();
+    let path = this.__makePath()
 
-    let ref = this.options.database.ref(path);
+    let ref = this.options.database.ref(path)
 
     if(!ref) {
-      this.__error('SUBSCRIBE_NO_REF');
-      return;
+      this.__error('SUBSCRIBE_NO_REF')
+      return
     }
 
-    this.__log('SUBSCRIBE_REF_SET');
+    this.__log('SUBSCRIBE_REF_SET')
 
     ref.on('value', function(snapshot) { this._value(snapshot.val()) }, this)
     ref.on('child_added', function(snapshot) { this._childAdded(snapshot.val()) }, this)
@@ -267,6 +278,9 @@ export default class MobaseStore {
   //values event handler.
   _value(data) {
 
+    /* Prevent triggering after initial value event has already been triggered  */
+    if(this._isReady) return
+
     this.__trigger('onBeforeValue', {data})
 
     let buffer = {}
@@ -275,7 +289,7 @@ export default class MobaseStore {
 
       this.__trigger('onBeforeChildAdded', {id, data: itemData})
 
-      const newItem = this.options.modelClass ? new this.options.modelClass(itemData) : {}
+      const newItem = this.options.model ? new this.options.model() : {}
 
       this.__setFields(newItem, itemData)
 
@@ -300,7 +314,7 @@ export default class MobaseStore {
   _childAdded(data) {
 
     //prevent before initial value() event has been triggered
-    if(!this.isReady) return
+    if(!this._isReady) return
 
     //extract id from incoming data
     const newId = this.__extractId(data)
@@ -310,9 +324,9 @@ export default class MobaseStore {
       return
     }
 
-    this.__trigger('onBeforeChildAdded', {id, data})
+    this.__trigger('onBeforeChildAdded', {id: newId, data})
 
-    const newItem = this.options.modelClass ? new this.options.modelClass(data) : {}
+    const newItem = this.options.model ? new this.options.model(data) : {}
 
     this.__setFields(newItem, data)
 
@@ -344,8 +358,7 @@ export default class MobaseStore {
 
     this.__trigger('onBeforeChildChanged', {id, data, item}, item)
 
-    if(item.setFields && typeof item.setFields == "function")
-      item.setFields(data) //TODO: or fallback !
+    this.__setFields(item, data)
 
     //invoking set() creates a mobx reaction
     this._collection.set(id, item)
@@ -446,13 +459,13 @@ export default class MobaseStore {
     return new Promise ( (resolve, reject) => {
 
       if (!ref) {
-        this.__error('UPDATE_NO_REF');
-        return reject();
+        this.__error('UPDATE_NO_REF')
+        return reject()
       }
 
-      const d = this.__removePrivateKeys(data);
+      const d = this.__removePrivateKeys(data)
 
-      this.__log('UPDATE', ref.key, d);
+      this.__log('UPDATE', ref.key, d)
 
       ref.update(d).then ( e => e ? reject(e) : resolve(ref.key) )
     })
@@ -494,29 +507,69 @@ export default class MobaseStore {
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   __setFields(item, data = {}) {
-    console.log('__setFields() %o %o', item, data)
 
     if(!item) return
 
-    Object.defineProperty(item, '$mobaseFields', {
-      configurable: false,
-      enumerable: false,
-      writable: true,
-      value: data
-    })
+    /*
+     * If model is specified we expect item.$mobaseFields to be a setter taking care of fields assignment.
+     * */
+    if(this.options.model != null) {
+      item.$mobaseFields = data
+      return
+    }
 
-    const fields = Object.keys( this.options.fields || data )
+    /*
+     *   Otherwise MobaseStore handles fields
+     * */
+
+    if(item.hasOwnProperty('$mobaseFields'))
+      item['$mobaseFields'] = data
+    else
+      Object.defineProperty(item, '$mobaseFields', {
+        configurable: false,
+        enumerable: false,
+        writable: true,
+        value: data
+      })
+
+    const fields = Object.keys( this.options.fields )
 
     fields.forEach(key => {
-      Object.defineProperty(item, key, {
-        configurable: false,
-        enumerable: true,
-        value: computed( () => item.$mobaseFields[key] ),
-        writable: false
-      })
+
+      const modifier = this.options.fields[key].modifier
+      const defVal = this.options.fields[key].default
+
+      const val = typeof data[key] != "undefined" ? data[key] : defVal
+
+      //if property already exists
+      if(isObservable(item, key)) {
+
+        switch(modifier) {
+          case observable:
+            item[key].set(val)
+            break
+
+          case observable.deep:
+          case observable.ref:
+          case observable.shallow:
+            item[key] = val
+            break
+
+          case observable.map:
+          case observable.shallowMap:
+            item.replace(val)
+            break
+
+        }
+
+      }
+
+      // property doesn't yet exist
+      else {
+        const bound = typeof val == "function" ? val.bind(item) : val
+        extendObservable(item, { [key]: modifier(bound) } )
+      }
     })
-
-
   }
 
 
@@ -535,23 +588,27 @@ export default class MobaseStore {
 
   __trigger(e, eventParams, item) {
 
+    /* Event triggered on item*/
     if(item && item[e] && typeof item[e] == "function")
-      item[e](params)
+      item[e](eventParams)
 
+    /* Event triggered on mobase object */
     if(this[e] && typeof this[e] == "function")
-      this[e](params)
+      this[e](eventParams)
 
+    /* Event triggered through options*/
     if(this.options[e] && typeof this.options[e] == "function")
-      this.options[e](params)
-
-
+      this.options[e].bind(this, eventParams)()
   }
 
+  /*
+   *   Removes all keys starting with _ or $
+   * */
   __removePrivateKeys(d) {
     let result = assign({}, d)
 
     forEach(result, (value, key) => {
-      if(key[0] == '_') {
+      if(key[0] == '_' || key[0] == '$') {
         delete result[key]
         this.__log('REMOVED_PRIVATE_KEY', key[0], d)
       }
@@ -608,6 +665,7 @@ export default class MobaseStore {
     '_ERROR_DEFAULT_': 'Unspecified error occured',
     'OPTIONS_NO_DB': 'Firebase database instance is not specified or null.',
     'OPTIONS_NO_PATH': 'options.path is not specified or null',
+    'OPTIONS_NO_FIELDS': 'options.fields is not specified',
     'SUBSCRIBE_NO_REF': 'Cannon establish firebase ref object in order to make a connection',
     'CHILD_ADDED_NO_ID': 'child_added event received, but id field is not present or null or empty',
     'CHILD_CHANGED_NO_ID': 'child_changed event received, but id field is not present or null or empty',
@@ -617,13 +675,14 @@ export default class MobaseStore {
     // Log messages
     '_LOG_DEFAULT_': 'Default log action occured',
     'SUBSCRIBE_REF_SET': 'Firebase reference retrieved',
-    'VALUE': 'Children %o have been added to collection from data %o',
-    'CHILD_ADDED': 'Child (%s) has been added with %o',
-    'CHILD_REMOVED': 'Child (%s) has been removed',
-    'CHILD_CHANGED': 'Child %s has been updated with %o',
+    'VALUE': '(value event) collection updated. items: %o , data: %o',
+    'CHILD_ADDED': '(child_added event) child (%s) has been added with %o',
+    'CHILD_REMOVED': '(child_removed event) removed (%s)',
+    'CHILD_CHANGED': '(child_changed event) child (%s) has been updated with %o',
     'REMOVED_PRIVATE_KEY': 'Private key %s removed from %o',
     'WRITE': 'Writing child (%s) with %o',
-    'UPDATE': 'Updating child (%s) with %o'
+    'UPDATE': 'Updating child (%s) with %o',
+    'OPTIONS_FIELDS_AND_MODEL': 'options.fields and options.model are both specified. options.fields will not be used'
   }
 
 }

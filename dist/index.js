@@ -21,6 +21,8 @@ var _mobx = require('mobx');
 
 var _lodash = require('lodash');
 
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
 function _initDefineProp(target, property, descriptor, context) {
   if (!descriptor) return;
   Object.defineProperty(target, property, {
@@ -87,10 +89,10 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       // Log messages
       '_LOG_DEFAULT_': 'Default log action occured',
       'SUBSCRIBE_REF_SET': 'Firebase reference retrieved',
-      'VALUE': 'Children %o have been added to collection from data %o',
-      'CHILD_ADDED': 'Child (%s) has been added with %o',
-      'CHILD_REMOVED': 'Child (%s) has been removed',
-      'CHILD_CHANGED': 'Child %s has been updated with %o',
+      'VALUE': '(value event) collection updated. items: %o , data: %o',
+      'CHILD_ADDED': '(child_added event) child (%s) has been added with %o',
+      'CHILD_REMOVED': '(child_removed event) removed (%s)',
+      'CHILD_CHANGED': '(child_changed event) child (%s) has been updated with %o',
       'REMOVED_PRIVATE_KEY': 'Private key %s removed from %o',
       'WRITE': 'Writing child (%s) with %o',
       'UPDATE': 'Updating child (%s) with %o'
@@ -235,8 +237,8 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
           ref = _this2._ref;
         }
 
-        _this2._update(ref, params).then(function () {
-          return resolve();
+        _this2._update(ref, params).then(function (updatedId) {
+          return resolve(updatedId);
         }).catch(function () {
           return reject("Updating failed");
         });
@@ -341,6 +343,9 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     value: function _value(data) {
       var _this4 = this;
 
+      /* Prevent triggering after initial value event has already been triggered  */
+      if (this._isReady) return;
+
       this.__trigger('onBeforeValue', { data: data });
 
       var buffer = {};
@@ -378,7 +383,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     value: function _childAdded(data) {
 
       //prevent before initial value() event has been triggered
-      if (!this.isReady) return;
+      if (!this._isReady) return;
 
       //extract id from incoming data
       var newId = this.__extractId(data);
@@ -388,7 +393,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
         return;
       }
 
-      this.__trigger('onBeforeChildAdded', { id: id, data: data });
+      this.__trigger('onBeforeChildAdded', { id: newId, data: data });
 
       var newItem = this.options.modelClass ? new this.options.modelClass(data) : {};
 
@@ -425,7 +430,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
       this.__trigger('onBeforeChildChanged', { id: id, data: data, item: item }, item);
 
-      if (item.setFields && typeof item.setFields == "function") item.setFields(data); //TODO: or fallback !
+      this.__setFields(item, data);
 
       //invoking set() creates a mobx reaction
       this._collection.set(id, item);
@@ -590,7 +595,6 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     value: function __setFields(item) {
       var data = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
-      console.log('__setFields() %o %o', item, data);
 
       if (!item) return;
 
@@ -604,14 +608,13 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       var fields = Object.keys(this.options.fields || data);
 
       fields.forEach(function (key) {
-        Object.defineProperty(item, key, {
-          configurable: false,
-          enumerable: true,
-          value: (0, _mobx.computed)(function () {
-            return item.$mobaseFields[key];
-          }),
-          writable: false
-        });
+
+        if (data[key]) {
+          if (typeof data[key] == "string" || typeof data[key] == "number" || typeof data[key] == "boolean") {
+
+            if (item[key] && (0, _mobx.isObservable)(item[key])) item[key] = data[key];else (0, _mobx.extendObservable)(item, _defineProperty({}, key, _mobx.observable.ref(data[key])));
+          } else if (Array.isArray(data[key])) (0, _mobx.extendObservable)(item, _defineProperty({}, key, _mobx.observable.shallow(data[key])));else if (_typeof(data[key]) == "object") (0, _mobx.extendObservable)(item, _defineProperty({}, key, _mobx.observable.map(data[key])));
+        }
       });
     }
   }, {
