@@ -556,7 +556,7 @@ export default class MobaseStore {
 
     fields.forEach(key => {
 
-      const modifier = this.options.fields[key].modifier || observable.ref
+      const modifier = typeof this.options.fields[key] == "function" ? this.options.fields[key] : (this.options.fields[key].modifier || observable.ref)
       const defVal = this.options.fields[key].default || ''
 
       const val = typeof data[key] != "undefined" ? data[key] : defVal
