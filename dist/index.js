@@ -5,21 +5,15 @@ Object.defineProperty(exports, "__esModule", {
 });
 exports.default = undefined;
 
+var _slicedToArray = function () { function sliceIterator(arr, i) { var _arr = []; var _n = true; var _d = false; var _e = undefined; try { for (var _i = arr[Symbol.iterator](), _s; !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"]) _i["return"](); } finally { if (_d) throw _e; } } return _arr; } return function (arr, i) { if (Array.isArray(arr)) { return arr; } else if (Symbol.iterator in Object(arr)) { return sliceIterator(arr, i); } else { throw new TypeError("Invalid attempt to destructure non-iterable instance"); } }; }();
+
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _desc, _value, _class, _descriptor, _class2, _temp; // CHANGELOG
-// Added options.name (arguable?)
-// Models are injected with _mobase object
-// Added onAfterChildAdded, onAfterChildRemoved, onAfterChildChanged hooks
-//       onBeforeChildAdded, onBeforeChildRemoved, onBeforeChildChanged
-//       onBeforeValue, onAfterValue
-
+var _desc, _value, _class, _descriptor, _class2, _temp;
 
 var _mobx = require('mobx');
-
-var _lodash = require('lodash');
 
 function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
 
@@ -142,7 +136,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     // mobx collection map
     this._collection = _mobx.observable.map();
 
-    (0, _lodash.merge)(this.options, MobaseStore.options, options);
+    this.options = Object.assign({}, MobaseStore.options, this.options, options);
 
     if (this.options.immediateSubscription) {
       this._subscribe();
@@ -165,7 +159,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
     //Subscribe to firebase (if options.immediateSubscription == false)
     value: function subscribe(options) {
-      if (options) (0, _lodash.merge)(this.options, MobaseStore.options, options);
+      if (options) this.options = Object.assign(this.options, options);
 
       this._subscribe();
     }
@@ -364,7 +358,9 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
       var buffer = {};
 
-      (0, _lodash.forEach)(data, function (itemData, id) {
+      Object.keys(data).forEach(function (id) {
+
+        var itemData = data[id];
 
         _this4.__trigger('onBeforeChildAdded', { id: id, data: itemData });
 
@@ -379,7 +375,11 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
       this._collection.replace(buffer);
 
-      (0, _lodash.forEach)(buffer, function (item, id) {
+      Object.entries(buffer).forEach(function (_ref) {
+        var _ref2 = _slicedToArray(_ref, 2),
+            id = _ref2[0],
+            item = _ref2[1];
+
         return _this4.__trigger('onAfterChildAdded', { id: id, item: item, data: data[id] }, item);
       });
 
@@ -604,6 +604,32 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     //                                                                                                                  //
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+    /*
+     *   Sets fields (properties) of store items.
+     *
+     *   If options.model is provided the method only sets $mobaseFields property, which is assumed
+     *   to be a setter managing fields on its own
+     *
+     *   If options.model is not set the method sets fields according to options.fields
+     *   setting, setting only those fields specified in the setting.
+     *
+     *   supported modifiers:
+     *
+     *     observable: in this case of plain values field should be accessed through field.set()/ fields.get()
+     *
+     *     observable.deep, observable.ref: for plain values which are accessed through "=" operator
+     *
+     *     observable.shallow: for shallowly observed collections
+     *
+     *     observable.map, observable.shallowMap: collections turned into mobx maps
+     *
+     *     computed: created a mobx computed field.
+     *               default value must be a function executed inside the computed. 'this' will be bound
+     *               to the current store item
+     *
+     * */
+
   }, {
     key: '__setFields',
     value: function __setFields(item) {
@@ -685,6 +711,11 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       Object.defineProperty(item, '$mobaseStores', { value: MobaseStore.stores, enumerable: false });
       Object.defineProperty(item, '$mobaseUserId', { value: this.options.userId, enumerable: false });
     }
+
+    /*
+     *   Triggers event in all possible ways
+     * */
+
   }, {
     key: '__trigger',
     value: function __trigger(e, eventParams, item) {
@@ -708,13 +739,14 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     value: function __removePrivateKeys(d) {
       var _this9 = this;
 
-      var result = (0, _lodash.assign)({}, d);
+      var result = {};
 
-      (0, _lodash.forEach)(result, function (value, key) {
-        if (key[0] == '_' || key[0] == '$') {
-          delete result[key];
-          _this9.__log('REMOVED_PRIVATE_KEY', key[0], d);
-        }
+      Object.entries(d).forEach(function (_ref3) {
+        var _ref4 = _slicedToArray(_ref3, 2),
+            key = _ref4[0],
+            value = _ref4[1];
+
+        if (key[0] == '_' || key[0] == '$') _this9.__log('REMOVED_PRIVATE_KEY', key[0], d);else result[key] = value;
       });
 
       return result;
