@@ -1,13 +1,4 @@
-// CHANGELOG
-// Added options.name (arguable?)
-// Models are injected with _mobase object
-// Added onAfterChildAdded, onAfterChildRemoved, onAfterChildChanged hooks
-//       onBeforeChildAdded, onBeforeChildRemoved, onBeforeChildChanged
-//       onBeforeValue, onAfterValue
-
-
 import {observable, computed, toJS, extendObservable, isObservable} from 'mobx'
-import {assign, merge, forEach} from 'lodash'
 
 export default class MobaseStore {
 
@@ -63,7 +54,7 @@ export default class MobaseStore {
     // mobx collection map
     this._collection = observable.map()
 
-    merge(this.options, MobaseStore.options, options)
+    this.options = Object.assign({}, MobaseStore.options, this.options, options)
 
     if(this.options.immediateSubscription) {
       this._subscribe()
@@ -90,7 +81,7 @@ export default class MobaseStore {
   //Subscribe to firebase (if options.immediateSubscription == false)
   subscribe(options) {
     if(options)
-      merge(this.options, MobaseStore.options, options);
+      this.options = Object.assign(this.options, options)
 
     this._subscribe();
   }
@@ -285,7 +276,9 @@ export default class MobaseStore {
 
     let buffer = {}
 
-    forEach(data, (itemData, id) => {
+    Object.keys(data).forEach( id => {
+
+      const itemData = data[id]
 
       this.__trigger('onBeforeChildAdded', {id, data: itemData})
 
@@ -301,7 +294,7 @@ export default class MobaseStore {
 
     this._collection.replace(buffer)
 
-    forEach(buffer, (item, id) => this.__trigger('onAfterChildAdded', {id, item, data: data[id]}, item))
+    Object.entries(buffer).forEach( ([id, item]) => this.__trigger('onAfterChildAdded', {id, item, data: data[id]}, item))
 
     this.__trigger('onAfterValue', {data, items: buffer})
 
@@ -506,6 +499,31 @@ export default class MobaseStore {
   //                                                                                                                  //
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+  /*
+   *   Sets fields (properties) of store items.
+   *
+   *   If options.model is provided the method only sets $mobaseFields property, which is assumed
+   *   to be a setter managing fields on its own
+   *
+   *   If options.model is not set the method sets fields according to options.fields
+   *   setting, setting only those fields specified in the setting.
+   *
+   *   supported modifiers:
+   *
+   *     observable: in this case of plain values field should be accessed through field.set()/ fields.get()
+   *
+   *     observable.deep, observable.ref: for plain values which are accessed through "=" operator
+   *
+   *     observable.shallow: for shallowly observed collections
+   *
+   *     observable.map, observable.shallowMap: collections turned into mobx maps
+   *
+   *     computed: created a mobx computed field.
+   *               default value must be a function executed inside the computed. 'this' will be bound
+   *               to the current store item
+   *
+   * */
   __setFields(item, data = {}) {
 
     if(!item) return
@@ -586,6 +604,9 @@ export default class MobaseStore {
     Object.defineProperty(item, '$mobaseUserId', { value: this.options.userId, enumerable: false })
   }
 
+  /*
+   *   Triggers event in all possible ways
+   * */
   __trigger(e, eventParams, item) {
 
     /* Event triggered on item*/
@@ -605,13 +626,13 @@ export default class MobaseStore {
    *   Removes all keys starting with _ or $
    * */
   __removePrivateKeys(d) {
-    let result = assign({}, d)
+    let result = {}
 
-    forEach(result, (value, key) => {
-      if(key[0] == '_' || key[0] == '$') {
-        delete result[key]
+    Object.entries(d).forEach( ([key, value]) => {
+      if(key[0] == '_' || key[0] == '$')
         this.__log('REMOVED_PRIVATE_KEY', key[0], d)
-      }
+      else
+        result[key] = value
     })
 
     return result

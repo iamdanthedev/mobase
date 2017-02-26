@@ -80,6 +80,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       '_ERROR_DEFAULT_': 'Unspecified error occured',
       'OPTIONS_NO_DB': 'Firebase database instance is not specified or null.',
       'OPTIONS_NO_PATH': 'options.path is not specified or null',
+      'OPTIONS_NO_FIELDS': 'options.fields is not specified',
       'SUBSCRIBE_NO_REF': 'Cannon establish firebase ref object in order to make a connection',
       'CHILD_ADDED_NO_ID': 'child_added event received, but id field is not present or null or empty',
       'CHILD_CHANGED_NO_ID': 'child_changed event received, but id field is not present or null or empty',
@@ -95,7 +96,8 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       'CHILD_CHANGED': '(child_changed event) child (%s) has been updated with %o',
       'REMOVED_PRIVATE_KEY': 'Private key %s removed from %o',
       'WRITE': 'Writing child (%s) with %o',
-      'UPDATE': 'Updating child (%s) with %o'
+      'UPDATE': 'Updating child (%s) with %o',
+      'OPTIONS_FIELDS_AND_MODEL': 'options.fields and options.model are both specified. options.fields will not be used'
     };
 
 
@@ -118,8 +120,11 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       //add childId to path (path/userId/childId)
       childId: null,
 
-      //model class to instanciate
-      modelClass: null,
+      //model class to instantiate
+      model: null,
+
+      //fields
+      fields: null,
 
       //should we subscribe to firebase on store creation
       immediateSubscription: true,
@@ -291,6 +296,15 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
         result = false;
       }
 
+      if (!this.options.fields && !this.options.model) {
+        this.__error('OPTIONS_NO_FIELDS');
+        result = false;
+      }
+
+      if (this.options.fields && this.options.model) {
+        this.__log('OPTIONS_FIELDS_AND_MODEL');
+      }
+
       return result;
     }
 
@@ -354,7 +368,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
         _this4.__trigger('onBeforeChildAdded', { id: id, data: itemData });
 
-        var newItem = _this4.options.modelClass ? new _this4.options.modelClass(itemData) : {};
+        var newItem = _this4.options.model ? new _this4.options.model() : {};
 
         _this4.__setFields(newItem, itemData);
 
@@ -395,7 +409,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
       this.__trigger('onBeforeChildAdded', { id: newId, data: data });
 
-      var newItem = this.options.modelClass ? new this.options.modelClass(data) : {};
+      var newItem = this.options.model ? new this.options.model(data) : {};
 
       this.__setFields(newItem, data);
 
@@ -593,28 +607,68 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
   }, {
     key: '__setFields',
     value: function __setFields(item) {
+      var _this8 = this;
+
       var data = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
 
       if (!item) return;
 
-      Object.defineProperty(item, '$mobaseFields', {
+      /*
+       * If model is specified we expect item.$mobaseFields to be a setter taking care of fields assignment.
+       * */
+      if (this.options.model != null) {
+        item.$mobaseFields = data;
+        return;
+      }
+
+      /*
+       *   Otherwise MobaseStore handles fields
+       * */
+
+      if (item.hasOwnProperty('$mobaseFields')) item['$mobaseFields'] = data;else Object.defineProperty(item, '$mobaseFields', {
         configurable: false,
         enumerable: false,
         writable: true,
         value: data
       });
 
-      var fields = Object.keys(this.options.fields || data);
+      var fields = Object.keys(this.options.fields);
 
       fields.forEach(function (key) {
 
-        if (data[key]) {
-          if (typeof data[key] == "string" || typeof data[key] == "number" || typeof data[key] == "boolean") {
+        var modifier = _this8.options.fields[key].modifier;
+        var defVal = _this8.options.fields[key].default;
 
-            if (item[key] && (0, _mobx.isObservable)(item[key])) item[key] = data[key];else (0, _mobx.extendObservable)(item, _defineProperty({}, key, _mobx.observable.ref(data[key])));
-          } else if (Array.isArray(data[key])) (0, _mobx.extendObservable)(item, _defineProperty({}, key, _mobx.observable.shallow(data[key])));else if (_typeof(data[key]) == "object") (0, _mobx.extendObservable)(item, _defineProperty({}, key, _mobx.observable.map(data[key])));
+        var val = typeof data[key] != "undefined" ? data[key] : defVal;
+
+        //if property already exists
+        if ((0, _mobx.isObservable)(item, key)) {
+
+          switch (modifier) {
+            case _mobx.observable:
+              item[key].set(val);
+              break;
+
+            case _mobx.observable.deep:
+            case _mobx.observable.ref:
+            case _mobx.observable.shallow:
+              item[key] = val;
+              break;
+
+            case _mobx.observable.map:
+            case _mobx.observable.shallowMap:
+              item.replace(val);
+              break;
+
+          }
         }
+
+        // property doesn't yet exist
+        else {
+            var bound = typeof val == "function" ? val.bind(item) : val;
+            (0, _mobx.extendObservable)(item, _defineProperty({}, key, modifier(bound)));
+          }
       });
     }
   }, {
@@ -635,23 +689,31 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     key: '__trigger',
     value: function __trigger(e, eventParams, item) {
 
-      if (item && item[e] && typeof item[e] == "function") item[e](params);
+      /* Event triggered on item*/
+      if (item && item[e] && typeof item[e] == "function") item[e](eventParams);
 
-      if (this[e] && typeof this[e] == "function") this[e](params);
+      /* Event triggered on mobase object */
+      if (this[e] && typeof this[e] == "function") this[e](eventParams);
 
-      if (this.options[e] && typeof this.options[e] == "function") this.options[e](params);
+      /* Event triggered through options*/
+      if (this.options[e] && typeof this.options[e] == "function") this.options[e].bind(this, eventParams)();
     }
+
+    /*
+     *   Removes all keys starting with _ or $
+     * */
+
   }, {
     key: '__removePrivateKeys',
     value: function __removePrivateKeys(d) {
-      var _this8 = this;
+      var _this9 = this;
 
       var result = (0, _lodash.assign)({}, d);
 
       (0, _lodash.forEach)(result, function (value, key) {
-        if (key[0] == '_') {
+        if (key[0] == '_' || key[0] == '$') {
           delete result[key];
-          _this8.__log('REMOVED_PRIVATE_KEY', key[0], d);
+          _this9.__log('REMOVED_PRIVATE_KEY', key[0], d);
         }
       });
 
