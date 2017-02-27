@@ -614,6 +614,8 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
      *   If options.model is not set the method sets fields according to options.fields
      *   setting, setting only those fields specified in the setting.
      *
+     *   observable.ref is a modifier by default
+     *
      *   supported modifiers:
      *
      *     observable: in this case of plain values field should be accessed through field.set()/ fields.get()
@@ -663,8 +665,8 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
       fields.forEach(function (key) {
 
-        var modifier = _this8.options.fields[key].modifier;
-        var defVal = _this8.options.fields[key].default;
+        var modifier = typeof _this8.options.fields[key] == "function" ? _this8.options.fields[key] : _this8.options.fields[key].modifier || _mobx.observable.ref;
+        var defVal = _this8.options.fields[key].default || '';
 
         var val = typeof data[key] != "undefined" ? data[key] : defVal;
 
