@@ -1,5 +1,7 @@
 # Mobase.js: Firebase-MobX adapter (a no-painer)
 
+Documentation: https://rasdaniil.gitbooks.io/mobase/content/
+
 **mobase** helps you to create MobX-powered Firebase-syncronised reactive MobaseStores in a simple and intuitive manner.
 
 It's based on a unidirectional data flow pattern. So the the only way to alternate data in the store is to write it to firebase. Because of the nature of Firebase changes will take effect immediately (don't have to wait until it syncs with the server)
@@ -7,6 +9,7 @@ It's based on a unidirectional data flow pattern. So the the only way to alterna
 MobaseStore has a MobX map as a collection of elements (items) at the core. It supports most of MobX maps' methods like values(), entries(), size, etc..
 
 It's important that every item had it's own id (any unique field can be an id, see options.idField)
+
 
 
 **GETTING STARTED**
