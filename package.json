@@ -1,6 +1,6 @@
 {
   "name": "mobase",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Firebase-to-mobx adapter",
   "main": "dist/index.js",
   "scripts": {
@@ -23,5 +23,9 @@
     "babel-preset-stage-2": "^6.18.0",
     "babel-cli": "^6.18.0",
     "webpack": "^1.14.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rasdaniil/mobase"
   }
 }
