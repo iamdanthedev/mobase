@@ -272,6 +272,8 @@ export default class MobaseStore {
     /* Prevent triggering after initial value event has already been triggered  */
     if(this._isReady) return
 
+    if(!data) data = {}
+
     this.__trigger('onBeforeValue', {data})
 
     let buffer = {}
