@@ -1,6 +1,6 @@
 {
   "name": "mobase",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Firebase-to-mobx adapter",
   "main": "dist/index.js",
   "scripts": {
