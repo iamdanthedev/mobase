@@ -354,6 +354,8 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       /* Prevent triggering after initial value event has already been triggered  */
       if (this._isReady) return;
 
+      if (!data) data = {};
+
       this.__trigger('onBeforeValue', { data: data });
 
       var buffer = {};
@@ -723,7 +725,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     value: function __trigger(e, eventParams, item) {
 
       /* Event triggered on item*/
-      if (item && item[e] && typeof item[e] == "function") item[e](eventParams);
+      if (item && item[e] && typeof item[e] == "function") item[e].bind(item, eventParams)();
 
       /* Event triggered on mobase object */
       if (this[e] && typeof this[e] == "function") this[e](eventParams);
