@@ -615,7 +615,7 @@ export default class MobaseStore {
 
     /* Event triggered on item*/
     if(item && item[e] && typeof item[e] == "function")
-      item[e].bind(item, eventParams)()
+      item[e](eventParams)
 
     /* Event triggered on mobase object */
     if(this[e] && typeof this[e] == "function")
@@ -623,7 +623,7 @@ export default class MobaseStore {
 
     /* Event triggered through options*/
     if(this.options[e] && typeof this.options[e] == "function")
-      this.options[e].bind(this, eventParams)()
+      this.options[e](eventParams)
   }
 
   /*
