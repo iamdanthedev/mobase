@@ -263,6 +263,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
      * Create a new item either from model class provided or as an empty object. Extra fields ($mobaseStores etc..) will be injected
      * Item will not be added to the collection (store) upon saving
      * @param {object} fields - Fields to set to a new item
+     * @returns {object} Returns new item
      */
 
   }, {
@@ -483,7 +484,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       //extract id from incoming data
       var newId = this.__extractId(data);
 
-      if (!!!newId) {
+      if (!newId) {
         this.__error('CHILD_ADDED_NO_ID', data);
         return;
       }
@@ -503,7 +504,11 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       this.__log('CHILD_ADDED', newId, data);
     }
 
-    //child_changed event handler
+    /**
+     * Child_changed event handler
+     * @param {object} data
+     * @private
+     */
 
   }, {
     key: '_childChanged',
@@ -511,7 +516,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       //extract id from incoming data
       var id = this.__extractId(data);
 
-      if (!!!id) {
+      if (!id) {
         this.__error('CHILD_CHANGED_NO_ID', data);
         return;
       }
@@ -543,7 +548,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
       //extract id from incoming data
       var id = this.__extractId(data);
 
-      if (!!!id) {
+      if (!id) {
         this.__error('CHILD_REMOVED_NO_ID', data);
         return;
       }
@@ -786,10 +791,21 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
           }
       });
     }
+
+    /**
+     * Extracts item id from data object according to store options
+     * @param {object} data
+     * @returns {*}
+     * @private
+     * @returns Id or null if undefined or null
+     */
+
   }, {
     key: '__extractId',
     value: function __extractId(data) {
-      return data[this.options.idField];
+      var id = data[this.options.idField];
+
+      if (typeof id == "undefined" || id == null) return null;else return id;
     }
   }, {
     key: '__injectMeta',

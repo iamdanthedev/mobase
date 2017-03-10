@@ -396,7 +396,7 @@ export default class MobaseStore {
     //extract id from incoming data
     const newId = this.__extractId(data)
 
-    if(!!!newId) {
+    if(!newId) {
       this.__error('CHILD_ADDED_NO_ID', data)
       return
     }
@@ -416,12 +416,16 @@ export default class MobaseStore {
     this.__log('CHILD_ADDED', newId, data)
   }
 
-  //child_changed event handler
+  /**
+   * Child_changed event handler
+   * @param {object} data
+   * @private
+   */
   _childChanged(data) {
     //extract id from incoming data
     const id = this.__extractId(data)
 
-    if(!!!id) {
+    if(!id) {
       this.__error('CHILD_CHANGED_NO_ID', data)
       return
     }
@@ -450,7 +454,7 @@ export default class MobaseStore {
     //extract id from incoming data
     const id = this.__extractId(data)
 
-    if(!!!id) {
+    if(!id) {
       this.__error('CHILD_REMOVED_NO_ID', data)
       return
     }
@@ -681,9 +685,20 @@ export default class MobaseStore {
     })
   }
 
-
+  /**
+   * Extracts item id from data object according to store options
+   * @param {object} data
+   * @returns {*}
+   * @private
+   * @returns Id or null if undefined or null
+   */
   __extractId(data) {
-    return data[this.options.idField]
+    const id = data[this.options.idField]
+
+    if(typeof id == "undefined" || id == null)
+      return null
+    else
+      return id
   }
 
 
