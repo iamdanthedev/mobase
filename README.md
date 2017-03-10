@@ -122,7 +122,7 @@ const addSubtask = (todo, subtask) => {
 
 const todo = todoStore.values()[0] //getting the first todo from the store
 completeTodo(todo)
-addSubtask(todo, "Yet another subtask)
+addSubtask(todo, "Yet another subtask")
 ```
 
 To remove an item:
