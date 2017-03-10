@@ -725,13 +725,13 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     value: function __trigger(e, eventParams, item) {
 
       /* Event triggered on item*/
-      if (item && item[e] && typeof item[e] == "function") item[e].bind(item, eventParams)();
+      if (item && item[e] && typeof item[e] == "function") item[e](eventParams);
 
       /* Event triggered on mobase object */
       if (this[e] && typeof this[e] == "function") this[e](eventParams);
 
       /* Event triggered through options*/
-      if (this.options[e] && typeof this.options[e] == "function") this.options[e].bind(this, eventParams)();
+      if (this.options[e] && typeof this.options[e] == "function") this.options[e](eventParams);
     }
 
     /*

@@ -1,3 +1,74 @@
+/**
+ * @description Is triggered on firebase value event before processing received data. Altering data will affect items created
+ * @callback Mobase.onBeforeValue
+ * @param {object} params
+ * @param {object} params.data Data received from firebase. Important: this is a reference so you can alter this object and if will effect the collection created
+ */
+
+/**
+ * @description Is triggered on firebase value event after the data has been processed and the collection updated with new item.
+ * @callback Mobase.onAfterValue
+ * @param {object} params
+ * @param {object} params.data Data received from firebase.
+ * @param {object} params.items Collection of items in shape {id1: Item1, id2: Item2}
+ */
+
+
+/**
+ * @description Is triggered before a new item is going to be instantiated and added to the collection. Altering data will affect the new item
+ * @callback Mobase.onBeforeChildAdded
+ * @param {object} params
+ * @param {string} params.id Id of a future item
+ * @param {object} params.data Data object fetched from firebase. Alter this to affect a new item
+ */
+
+/**
+ * @description Is triggered after a new item was instantiated added to collection
+ * @callback Mobase.onAfterChildAdded
+ * @param {object} params
+ * @param {string} params.id New item id
+ * @param {object} params.item New item instance
+ * @param {object} params.date New item data
+ */
+
+
+/**
+ * @description Is triggered after an item was changed in firebase and before it's changed in the collection
+ * @callback Mobase.onBeforeChildChanged
+ * @param {object} params
+ * @param {string} params.id
+ * @param {object} params.data
+ * @params {object} params.item
+ */
+
+/**
+ * @description Is triggered after an item was changed in firebase and after it's changed in the collection
+ * @callback Mobase.onAfterChildChanged
+ * @param {object} params
+ * @param {string} params.id
+ * @param {object} params.data
+ * @params {object} params.item
+ */
+
+
+/**
+ * @description Is triggered after an item was removed from firebase and before an item was removed from collection
+ * @callback Mobase.onBeforeChildRemoved
+ * @param {object} params
+ * @param {string} params.id
+ * @param {object} params.data
+ * @params {object} params.item
+ */
+
+/**
+ * @description Is triggered after an item was removed from firebase and before an item was removed from collection
+ * @callback Mobase.onAfterChildRemoved
+ * @param {object} params
+ * @param {string} params.id Item id
+ * @param {object} params.data Item data provided by firebase
+ */
+
+
 import {observable, computed, toJS, extendObservable, isObservable} from 'mobx'
 
 export default class MobaseStore {
