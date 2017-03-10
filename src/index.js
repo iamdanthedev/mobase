@@ -146,7 +146,7 @@ export default class MobaseStore {
 
 
   @computed get isReady() {
-    return this._isReady;
+    return this._isReady
   }
 
   //Subscribe to firebase (if options.immediateSubscription == false)
@@ -154,11 +154,11 @@ export default class MobaseStore {
     if(options)
       this.options = Object.assign(this.options, options)
 
-    this._subscribe();
+    this._subscribe()
   }
 
   unsubscribe() {
-    this._unsubscribe();
+    this._unsubscribe()
   }
 
 
@@ -191,6 +191,17 @@ export default class MobaseStore {
     return toJS(this._collection);
   }
 
+  /**
+   * Create a new item either from model class provided or as an empty object. Extra fields ($mobaseStores etc..) will be injected
+   * Item will not be added to the collection (store) upon saving
+   * @param {object} fields - Fields to set to a new item
+   * @returns {object} Returns new item
+   */
+  create(fields) {
+    const item = this.__newItem()
+    this.__injectMeta(item)
+    return item
+  }
 
 
   write(params, toRoot = false) {
@@ -355,7 +366,7 @@ export default class MobaseStore {
 
       this.__trigger('onBeforeChildAdded', {id, data: itemData})
 
-      const newItem = this.options.model ? new this.options.model() : {}
+      const newItem = this.__newItem()
 
       this.__setFields(newItem, itemData)
 
@@ -392,7 +403,7 @@ export default class MobaseStore {
 
     this.__trigger('onBeforeChildAdded', {id: newId, data})
 
-    const newItem = this.options.model ? new this.options.model(data) : {}
+    const newItem = this.__newItem()
 
     this.__setFields(newItem, data)
 
@@ -571,6 +582,11 @@ export default class MobaseStore {
   //                                              HELPERS                                                             //
   //                                                                                                                  //
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+  __newItem() {
+    return this.options.model ? new this.options.model() : {}
+  }
 
 
   /*

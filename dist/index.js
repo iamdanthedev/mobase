@@ -11,7 +11,72 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _desc, _value, _class, _descriptor, _class2, _temp;
+var _desc, _value, _class, _descriptor, _class2, _temp; /**
+                                                         * @description Is triggered on firebase value event before processing received data. Altering data will affect items created
+                                                         * @callback Mobase.onBeforeValue
+                                                         * @param {object} params
+                                                         * @param {object} params.data Data received from firebase. Important: this is a reference so you can alter this object and if will effect the collection created
+                                                         */
+
+/**
+ * @description Is triggered on firebase value event after the data has been processed and the collection updated with new item.
+ * @callback Mobase.onAfterValue
+ * @param {object} params
+ * @param {object} params.data Data received from firebase.
+ * @param {object} params.items Collection of items in shape {id1: Item1, id2: Item2}
+ */
+
+/**
+ * @description Is triggered before a new item is going to be instantiated and added to the collection. Altering data will affect the new item
+ * @callback Mobase.onBeforeChildAdded
+ * @param {object} params
+ * @param {string} params.id Id of a future item
+ * @param {object} params.data Data object fetched from firebase. Alter this to affect a new item
+ */
+
+/**
+ * @description Is triggered after a new item was instantiated added to collection
+ * @callback Mobase.onAfterChildAdded
+ * @param {object} params
+ * @param {string} params.id New item id
+ * @param {object} params.item New item instance
+ * @param {object} params.date New item data
+ */
+
+/**
+ * @description Is triggered after an item was changed in firebase and before it's changed in the collection
+ * @callback Mobase.onBeforeChildChanged
+ * @param {object} params
+ * @param {string} params.id
+ * @param {object} params.data
+ * @params {object} params.item
+ */
+
+/**
+ * @description Is triggered after an item was changed in firebase and after it's changed in the collection
+ * @callback Mobase.onAfterChildChanged
+ * @param {object} params
+ * @param {string} params.id
+ * @param {object} params.data
+ * @params {object} params.item
+ */
+
+/**
+ * @description Is triggered after an item was removed from firebase and before an item was removed from collection
+ * @callback Mobase.onBeforeChildRemoved
+ * @param {object} params
+ * @param {string} params.id
+ * @param {object} params.data
+ * @params {object} params.item
+ */
+
+/**
+ * @description Is triggered after an item was removed from firebase and before an item was removed from collection
+ * @callback Mobase.onAfterChildRemoved
+ * @param {object} params
+ * @param {string} params.id Item id
+ * @param {object} params.data Item data provided by firebase
+ */
 
 var _mobx = require('mobx');
 
@@ -193,6 +258,20 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     value: function toJS() {
       return (0, _mobx.toJS)(this._collection);
     }
+
+    /**
+     * Create a new item either from model class provided or as an empty object. Extra fields ($mobaseStores etc..) will be injected
+     * Item will not be added to the collection (store) upon saving
+     * @param {object} fields - Fields to set to a new item
+     */
+
+  }, {
+    key: 'create',
+    value: function create(fields) {
+      var item = this.__newItem();
+      this.__injectMeta(item);
+      return item;
+    }
   }, {
     key: 'write',
     value: function write(params) {
@@ -366,7 +445,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
         _this4.__trigger('onBeforeChildAdded', { id: id, data: itemData });
 
-        var newItem = _this4.options.model ? new _this4.options.model() : {};
+        var newItem = _this4.__newItem();
 
         _this4.__setFields(newItem, itemData);
 
@@ -411,7 +490,7 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
 
       this.__trigger('onBeforeChildAdded', { id: newId, data: data });
 
-      var newItem = this.options.model ? new this.options.model(data) : {};
+      var newItem = this.__newItem();
 
       this.__setFields(newItem, data);
 
@@ -606,6 +685,12 @@ var MobaseStore = (_class = (_temp = _class2 = function () {
     //                                                                                                                  //
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+  }, {
+    key: '__newItem',
+    value: function __newItem() {
+      return this.options.model ? new this.options.model() : {};
+    }
 
     /*
      *   Sets fields (properties) of store items.
