@@ -1,5 +1,8 @@
 # Mobase.js: Firebase-MobX adapter (a no-painer)
 
+### This project is not production ready. You are welcome to explore the code in educational purposes. ###
+#### (Also I was still quite C#-biased at the days of writing this code ####
+
 Documentation: https://rasdaniil.gitbooks.io/mobase/content/
 
 **mobase** helps you to create MobX-powered Firebase-syncronised reactive MobaseStores in a simple and intuitive manner.
